@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSM Indoor Routing Pro v4.0 (Modular)</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+
+<body>
+
+    <!-- Controls Panel -->
+    <div id="ui-controls" class="panel">
+        <div>
+            <h1>Indoor Routing</h1>
+            <div style="font-size: 0.75rem; color: #64748b;">Version 4.0 (Refactored)</div>
+        </div>
+
+        <!-- Search Box (Nominatim) -->
+        <div class="search-container">
+            <label>Ort/Adresse suchen</label>
+            <input type="text" id="in-search" placeholder="z.B. Berlin Hbf..." autocomplete="off">
+            <div id="search-results" class="results-list"></div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div>
+                <label>Lat</label>
+                <input type="number" id="in-lat" step="0.0001" value="52.520008">
+            </div>
+            <div>
+                <label>Lon</label>
+                <input type="number" id="in-lon" step="0.0001" value="13.386908">
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 8px; align-items: end;">
+            <div>
+                <label>Radius (m)</label>
+                <input type="number" id="in-rad" value="150">
+            </div>
+            <button id="btn-load" class="btn btn-small">Laden</button>
+        </div>
+
+        <div class="status-box">
+            Status: <span id="status-text" style="color: #eab308;">Warte auf Input...</span>
+        </div>
+
+        <!-- Track/Platform Selection -->
+        <div style="border-top: 1px solid #334155; padding-top: 12px; margin-top: 4px;">
+            <label>Suche Ziel (Gleis/Ref)</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <input type="text" id="in-track" placeholder="z.B. 5, 12a">
+                <button id="btn-find-track" class="btn btn-small" disabled>Finden</button>
+            </div>
+        </div>
+
+        <div style="border-top: 1px solid #334155; padding-top: 12px; margin-top: 4px;">
+            <label>Stockwerk-Explosion</label>
+            <input type="range" id="explode-slider" min="0" max="20" step="0.5" value="0">
+        </div>
+
+        <!-- Tools -->
+        <div style="border-top: 1px solid #334155; padding-top: 12px; margin-top: 4px;">
+            <label>Werkzeuge</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <button id="btn-lock-start" class="btn btn-small" style="background: #3b82f6;">Start fixieren
+                    🔓</button>
+                <button id="btn-clear-route" class="btn btn-small" style="background: #ef4444;">Route löschen
+                    🗑️</button>
+            </div>
+        </div>
+
+        <div class="status-box">
+            <div style="margin-bottom: 4px;">
+                <span class="status-dot dot-green"></span> Start: <span id="info-start" style="color:white">-</span>
+            </div>
+            <div>
+                <span class="status-dot dot-red"></span> Ziel: <span id="info-end" style="color:white">-</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info Panel (Right) -->
+    <div id="ui-info" class="panel">
+        <span class="close-btn" id="btn-close-info">&times;</span>
+        <h2 id="info-title">Objekt Details</h2>
+        <div id="info-content" class="scroll-area">
+            <!-- Dynamic Content -->
+        </div>
+    </div>
+
+    <!-- Replay Controls -->
+    <div id="replay-controls" style="display: none;">
+        <button id="btn-replay-prev" class="replay-btn">←</button>
+        <span id="replay-status">Route</span>
+        <button id="btn-replay-next" class="replay-btn">→</button>
+    </div>
+
+    <div id="instruction">Linksklick: Start wählen • Suche: Ziel wählen</div>
+    <div id="canvas-container"></div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+
+</html>

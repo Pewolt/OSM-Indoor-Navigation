@@ -65,4 +65,4 @@ Ein interaktives 3D-Indoor-Navigationssystem basierend auf OpenStreetMap-Daten, 
   - `config.js`: Zentrale Konfiguration (Farben, Größen).
 
 ---
-*Projekt im Rahmen des Moduls GeoIT.*
+*Projekt im Rahmen des Moduls GeoIT 2025/26.*

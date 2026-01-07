@@ -6,6 +6,8 @@ import { nodeObjects, platformRegistry } from './data.js';
 import { graph, calculateRoute } from './graph.js';
 import { setStatus, showInfo, updateRouteInfo, updateLockStatus } from './ui.js';
 
+console.log("[DEBUG] interaction.js loaded");
+
 let scene, camera, renderer, controls, raycaster, mouse;
 let groupsRef;
 
@@ -200,11 +202,48 @@ export function initInteraction(scn, cam, ren, ctrl, grp) {
     window.addEventListener('click', onClick);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+
+    // Camera Control Buttons
+    const setupBtn = (id, key) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            console.log("Setting up button:", id);
+            const start = (e) => {
+                console.log("Button start:", key);
+                e.preventDefault();
+                e.stopPropagation();
+                buttonStates[key] = true;
+            };
+            const end = (e) => {
+                console.log("Button end:", key);
+                e.preventDefault();
+                e.stopPropagation();
+                buttonStates[key] = false;
+            };
+
+            // Use Pointer Events for unified Mouse/Touch handling
+            btn.addEventListener('pointerdown', start);
+            btn.addEventListener('pointerup', end);
+            btn.addEventListener('pointerleave', end);
+            btn.addEventListener('contextmenu', (e) => e.preventDefault()); // Prevent right click menu
+        } else {
+            console.warn("Button not found:", id);
+        }
+    };
+
+    setupBtn('btn-cam-forward', 'w');
+    setupBtn('btn-cam-back', 's');
+    setupBtn('btn-cam-left', 'a');
+    setupBtn('btn-cam-right', 'd');
+    setupBtn('btn-cam-zoom-in', 'zin');
+    setupBtn('btn-cam-zoom-out', 'zout');
 }
 
 // WASD State
 const keys = { w: false, a: false, s: false, d: false };
+const buttonStates = { w: false, a: false, s: false, d: false, zin: false, zout: false };
 const moveSpeed = 2.0; // Adjustable speed
+const zoomSpeed = 1.0;
 
 function onKeyDown(e) {
     switch (e.key.toLowerCase()) {
@@ -227,7 +266,7 @@ function onKeyUp(e) {
 export function updateMovement() {
     if (!camera || !controls) return;
 
-    if (keys.w || keys.a || keys.s || keys.d) {
+    if (keys.w || keys.a || keys.s || keys.d || buttonStates.w || buttonStates.a || buttonStates.s || buttonStates.d || buttonStates.zin || buttonStates.zout) {
         // Get camera forward vector projected on XZ plane
         const forward = new THREE.Vector3();
         camera.getWorldDirection(forward);
@@ -239,15 +278,35 @@ export function updateMovement() {
 
         const move = new THREE.Vector3();
 
-        if (keys.w) move.add(forward);
-        if (keys.s) move.sub(forward);
-        if (keys.d) move.add(right);
-        if (keys.a) move.sub(right);
+        if (keys.w || buttonStates.w) move.add(forward);
+        if (keys.s || buttonStates.s) move.sub(forward);
+        if (keys.d || buttonStates.d) move.add(right);
+        if (keys.a || buttonStates.a) move.sub(right);
 
         move.normalize().multiplyScalar(moveSpeed);
 
+        // Apply Pan
         camera.position.add(move);
         controls.target.add(move);
+
+        // Apply Zoom (Move along camera look vector)
+        if (buttonStates.zin || buttonStates.zout) {
+            const zoomDir = new THREE.Vector3();
+            camera.getWorldDirection(zoomDir);
+
+            const dist = camera.position.distanceTo(controls.target);
+
+            // Zoom In: Move Forward
+            if (buttonStates.zin) {
+                if (dist > 5) { // Minimum distance limit
+                    camera.position.addScaledVector(zoomDir, zoomSpeed);
+                }
+            }
+            // Zoom Out: Move Backward
+            if (buttonStates.zout) {
+                camera.position.addScaledVector(zoomDir, -zoomSpeed);
+            }
+        }
     }
 }
 

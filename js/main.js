@@ -6,11 +6,13 @@ import { loadData, onSearchInput } from './api.js';
 import { processData, clearData, nodeObjects } from './data.js';
 import { getY } from './geometry.js';
 import { getGraphNodesData, clearGraph } from './graph.js';
-import { initInteraction, setExplosionOffset, findTrackAndSetTarget, onSliderChange, updateMovement, stepReplay, toggleStartLock, clearRoute } from './interaction.js';
+import { initInteraction, setExplosionOffset, findTrackAndSetTarget, onSliderChange, updateMovement, stepReplay, toggleStartLock, clearRoute } from './interaction.js?v=3';
 import { ELEMENTS, setStatus } from './ui.js';
 
 // --- GLOBALS ---
 let scene, camera, renderer, controls;
+
+console.log("[DEBUG] main.js loaded");
 
 // Groups
 const groups = {

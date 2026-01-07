@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OSM Indoor Routing Pro v4.0 (Modular)</title>
     <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/controls.css">
     <script type="importmap">
         {
             "imports": {
@@ -106,10 +107,27 @@
         <button id="btn-replay-next" class="replay-btn">→</button>
     </div>
 
+    <div id="camera-controls">
+        <div class="controls-dpad">
+            <div class="control-row">
+                <button id="btn-cam-forward">▲</button>
+            </div>
+            <div class="control-row">
+                <button id="btn-cam-left">◀</button>
+                <button id="btn-cam-back">▼</button>
+                <button id="btn-cam-right">▶</button>
+            </div>
+        </div>
+        <div class="controls-zoom">
+            <button id="btn-cam-zoom-in" title="Zoom In">＋</button>
+            <button id="btn-cam-zoom-out" title="Zoom Out">－</button>
+        </div>
+    </div>
+
     <div id="instruction">Linksklick: Start wählen • Suche: Ziel wählen</div>
     <div id="canvas-container"></div>
 
-    <script type="module" src="js/main.js"></script>
+    <script type="module" src="js/main.js?v=2"></script>
 </body>
 
 </html>

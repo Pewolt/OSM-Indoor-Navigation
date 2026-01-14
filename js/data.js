@@ -139,7 +139,18 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
     // Copy localNodeObjects to exported
     nodeObjects.push(...localNodeObjects);
 
-    if (onReady) onReady();
+    // Collect all unique levels
+    const uniqueLevels = new Set();
+    // From groups (meshes have userData.level)
+    Object.values(groups).forEach(g => {
+        g.children.forEach(c => {
+            if (c.userData && c.userData.level !== undefined) {
+                uniqueLevels.add(c.userData.level);
+            }
+        });
+    });
+
+    if (onReady) onReady(Array.from(uniqueLevels));
 }
 
 function processSteps(groups, pts, tags, osmId) {

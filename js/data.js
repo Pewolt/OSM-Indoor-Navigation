@@ -32,23 +32,23 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
     // 2. Process Relations (Multipolygons)
     data.elements.filter(el => el.type === 'relation').forEach(rel => {
         osmCache[rel.id] = rel.tags || {};
-        if (rel.tags.type === 'multipolygon' || rel.tags.building || rel.tags.public_transport === 'platform' || rel.tags.railway === 'platform') {
+        if (rel.tags.type === 'multipolygon' || rel.tags.building || rel.tags.public_transport === 'platform' || rel.tags.railway === 'platform' || rel.tags.indoor === 'corridor' || rel.tags.indoor === 'level') {
             const shapes = assembleMultipolygon(rel, wayMap, nodes);
             if (shapes && shapes.length > 0) {
-                let levelStr = rel.tags.level || "0";
-                if (levelStr.includes(';')) levelStr = levelStr.split(';')[0];
-                let level = parseFloat(levelStr); if (isNaN(level)) level = 0;
+                const levels = parseLevels(rel.tags);
 
                 shapes.forEach(shape => {
-                    let tags = { ...rel.tags };
-                    if (tags.public_transport === 'platform' || tags.railway === 'platform') tags.type = 'platform';
-                    createMeshFromShape(groups, shape, level, tags, rel.id);
+                    levels.forEach(level => {
+                        let tags = { ...rel.tags };
+                        if (tags.public_transport === 'platform' || tags.railway === 'platform') tags.type = 'platform';
+                        createMeshFromShape(groups, shape, level, tags, rel.id);
 
-                    if (tags.type === 'platform') {
-                        // Estimate center for track finder
-                        const points = shape.extractPoints().shape.map(p => ({ x: p.x, z: p.y }));
-                        registerPlatform(rel.id, tags, points, level);
-                    }
+                        if (tags.type === 'platform') {
+                            // Estimate center for track finder
+                            const points = shape.extractPoints().shape.map(p => ({ x: p.x, z: p.y }));
+                            registerPlatform(rel.id, tags, points, level);
+                        }
+                    });
                 });
             }
         }
@@ -59,49 +59,62 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
         if (!way.nodes || way.nodes.length < 2) return;
         osmCache[way.id] = way.tags || {};
         const tags = way.tags || {};
-        let levelStr = tags.level || "0";
-        if (levelStr.includes(';')) levelStr = levelStr.split(';')[0];
-        let level = parseFloat(levelStr); if (isNaN(level)) level = 0;
 
         const pts = way.nodes.map(nid => nodes[nid]).filter(n => n);
         if (pts.length < 2) return;
 
-        // Steps
+        // Steps (Special case: they span levels, already robustly parsed)
         if (tags.highway === 'steps') {
             processSteps(groups, pts, tags, way.id);
             return;
         }
 
+        // For other elements, we can utilize multi-level support
+        const levels = parseLevels(tags);
+
         // Graph Edges
         const isPath = tags.highway || tags.indoor === 'corridor';
         if (isPath) {
-            for (let i = 0; i < pts.length - 1; i++) {
-                addGraphEdge(groups, pts[i], pts[i + 1], level, tags.oneway === 'yes');
-            }
+            levels.forEach(lvl => {
+                for (let i = 0; i < pts.length - 1; i++) {
+                    addGraphEdge(groups, pts[i], pts[i + 1], lvl, tags.oneway === 'yes');
+                }
+            });
         }
 
         // Railways / Platforms
         if (tags.railway || tags.public_transport === 'platform') {
-            if (!tags.level && tags.layer) level = parseFloat(tags.layer);
+            // Note: Platforms/Railways often have specific level logic, but if explicitly tagged, use levels.
+            // If just "layer", parseLevels handles fallback? No, parseLevels currently does level/building:levels.
+            // Let's defer to parseLevels unless "layer" is the only thing.
+            if (!tags.level && !tags['building:levels'] && tags.layer) {
+                // Fallback to layer if no level info
+                const l = parseFloat(tags.layer);
+                if (!isNaN(l)) levels.length = 0; levels.push(l); // Overwrite
+            }
 
-            if (tags.railway === 'platform' || tags.public_transport === 'platform') {
-                registerPlatform(way.id, tags, pts, level);
-                const isClosed = (pts[0].id === pts[pts.length - 1].id);
-                if (isClosed) createPolygonMesh(groups, pts, level, { ...tags, type: 'platform' }, way.id);
-                else createPlatformLine(groups, pts, level, tags, way.id);
-            }
-            else if (tags.railway && tags.railway !== 'platform') {
-                if (tags.level) {
-                    createRailwayLine(groups, pts, level, tags, way.id);
-                    if (tags['railway:track_ref'] || tags.ref) registerPlatform(way.id, tags, pts, level);
+            levels.forEach(lvl => {
+                if (tags.railway === 'platform' || tags.public_transport === 'platform') {
+                    registerPlatform(way.id, tags, pts, lvl);
+                    const isClosed = (pts[0].id === pts[pts.length - 1].id);
+                    if (isClosed) createPolygonMesh(groups, pts, lvl, { ...tags, type: 'platform' }, way.id);
+                    else createPlatformLine(groups, pts, lvl, tags, way.id);
                 }
-            }
+                else if (tags.railway && tags.railway !== 'platform') {
+                    // Only render track if explicit level or logic allows. 
+                    // Usually tracks without level are on ground(0) or layer.
+                    createRailwayLine(groups, pts, lvl, tags, way.id);
+                    if (tags['railway:track_ref'] || tags.ref) registerPlatform(way.id, tags, pts, lvl);
+                }
+            });
         }
 
-        // Rooms / Walls
-        const isRoom = tags.indoor === 'room' || tags.building || tags.wall;
+        // Rooms / Walls / Corridors / Levels
+        const isRoom = tags.indoor === 'room' || tags.building || tags.wall || tags.indoor === 'corridor' || tags.indoor === 'level';
         if (isRoom && tags.railway !== 'platform' && tags.public_transport !== 'platform' && pts.length > 2) {
-            createPolygonMesh(groups, pts, level, tags, way.id);
+            levels.forEach(lvl => {
+                createPolygonMesh(groups, pts, lvl, tags, way.id);
+            });
         }
     });
 
@@ -156,8 +169,11 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
 function processSteps(groups, pts, tags, osmId) {
     let rangeLevels = [];
     if (tags.level) {
-        const cleanLvl = tags.level.replace('-', ';').replace(',', ';');
-        rangeLevels = cleanLvl.split(';').map(parseFloat).filter(l => !isNaN(l)).sort((a, b) => a - b);
+        // Robust parsing for "0-1", "-1-0", "-2--1", "0;1", "1.5"
+        const matches = tags.level.match(/-?\d+(\.\d+)?/g);
+        if (matches) {
+            rangeLevels = matches.map(parseFloat).sort((a, b) => a - b);
+        }
     }
     if (rangeLevels.length > 1) {
         const minLvl = rangeLevels[0]; const maxLvl = rangeLevels[rangeLevels.length - 1];
@@ -246,4 +262,48 @@ function stitchSegments(segments) {
         if (closed || current.length > 2) rings.push(current);
     }
     return rings;
+}
+
+function parseLevels(tags) {
+    const levels = new Set();
+
+    if (tags.level) {
+        const parts = tags.level.split(';');
+        parts.forEach(part => {
+            // Check for range (e.g. 0-3, -1-1)
+            // Regex: matches "Number - Number". 
+            // Supports negative numbers. 
+            // Groups: 1 = Start, 2 = End
+            const rangeMatch = part.match(/^(-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)$/);
+            if (rangeMatch) {
+                const start = parseFloat(rangeMatch[1]);
+                const end = parseFloat(rangeMatch[2]);
+                if (!isNaN(start) && !isNaN(end)) {
+                    const min = Math.min(start, end);
+                    const max = Math.max(start, end);
+                    for (let i = Math.floor(min); i <= Math.floor(max); i++) {
+                        levels.add(i);
+                    }
+                }
+            } else {
+                const num = parseFloat(part);
+                if (!isNaN(num)) levels.add(num);
+            }
+        });
+    } else if (tags['building:levels']) {
+        const count = parseFloat(tags['building:levels']);
+        if (!isNaN(count)) {
+            let min = 0;
+            if (tags['building:min_level']) {
+                min = parseFloat(tags['building:min_level']) || 0;
+            }
+            // Generate levels: min, min+1, ... min+count-1
+            for (let i = 0; i < count; i++) {
+                levels.add(min + i);
+            }
+        }
+    }
+
+    if (levels.size === 0) levels.add(0);
+    return Array.from(levels).sort((a, b) => a - b);
 }

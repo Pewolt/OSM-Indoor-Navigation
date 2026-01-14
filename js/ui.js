@@ -26,8 +26,8 @@ export const ELEMENTS = {
     // Tools
     btnLockStart: document.getElementById('btn-lock-start'),
     btnClearRoute: document.getElementById('btn-clear-route'),
-    levelSelect: document.getElementById('in-level-select')
-    btnClearRoute: document.getElementById('btn-clear-route')
+    levelSelect: document.getElementById('in-level-select'),
+    btnCamPanToggle: document.getElementById('btn-cam-pan-toggle')
 };
 
 export function setStatus(text, color) {
@@ -122,3 +122,20 @@ export function populateLevelSelect(levels) {
 }
 
 
+export function initMobileMenu() {
+    const btnToggle = document.getElementById('btn-menu-toggle');
+    const btnClose = document.getElementById('btn-menu-close');
+    const controls = document.getElementById('ui-controls');
+
+    if (btnToggle && controls) {
+        btnToggle.addEventListener('click', () => {
+            controls.classList.add('open');
+        });
+    }
+
+    if (btnClose && controls) {
+        btnClose.addEventListener('click', () => {
+            controls.classList.remove('open');
+        });
+    }
+}

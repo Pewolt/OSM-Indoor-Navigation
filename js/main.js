@@ -8,7 +8,7 @@ import { getY } from './geometry.js';
 import { getGraphNodesData, clearGraph } from './graph.js';
 import { initInteraction, setExplosionOffset, findTrackAndSetTarget, onSliderChange, updateMovement, stepReplay, toggleStartLock, clearRoute } from './interaction.js?v=3';
 
-import { ELEMENTS, setStatus } from './ui.js';
+import { ELEMENTS, setStatus, initMobileMenu } from './ui.js';
 
 // --- GLOBALS ---
 let scene, camera, renderer, controls;
@@ -92,6 +92,8 @@ function init() {
             ELEMENTS.results.style.display = 'none';
         }
     });
+
+    initMobileMenu();
 
     animate();
 }

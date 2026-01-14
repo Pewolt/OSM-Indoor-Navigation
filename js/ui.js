@@ -26,6 +26,7 @@ export const ELEMENTS = {
     // Tools
     btnLockStart: document.getElementById('btn-lock-start'),
     btnClearRoute: document.getElementById('btn-clear-route'),
+    levelSelect: document.getElementById('in-level-select')
     btnClearRoute: document.getElementById('btn-clear-route')
 };
 
@@ -102,5 +103,22 @@ export function updateLockStatus(isLocked) {
     }
 }
 
+export function populateLevelSelect(levels) {
+    const select = ELEMENTS.levelSelect;
+    if (!select) return;
+
+    // Keep the first "All" option
+    select.innerHTML = '<option value="all">Alle Etagen anzeigen</option>';
+
+    // Sort levels numerically
+    levels.sort((a, b) => a - b);
+
+    levels.forEach(lvl => {
+        const opt = document.createElement('option');
+        opt.value = lvl;
+        opt.innerText = `Level ${lvl}`;
+        select.appendChild(opt);
+    });
+}
 
 

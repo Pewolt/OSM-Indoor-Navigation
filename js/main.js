@@ -7,6 +7,7 @@ import { processData, clearData, nodeObjects } from './data.js';
 import { getY } from './geometry.js';
 import { getGraphNodesData, clearGraph } from './graph.js';
 import { initInteraction, setExplosionOffset, findTrackAndSetTarget, onSliderChange, updateMovement, stepReplay, toggleStartLock, clearRoute } from './interaction.js?v=3';
+
 import { ELEMENTS, setStatus } from './ui.js';
 
 // --- GLOBALS ---

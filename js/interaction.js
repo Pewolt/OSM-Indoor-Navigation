@@ -187,6 +187,29 @@ function renderReplayStep(direction) {
     });
 }
 
+function togglePanMode() {
+    if (!controls) return;
+    const btn = document.getElementById('btn-cam-pan-toggle');
+
+    // Check current mode (Left Button)
+    if (controls.mouseButtons.LEFT === THREE.MOUSE.ROTATE) {
+        // Switch to Pan
+        controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+        // Optionally switch right click to Rotate? Or keep as Pan (default is usually Pan/Zoom)
+        // OrbitControls defaults: LEFT=ROTATE, MIDDLE=DOLLY, RIGHT=PAN
+
+        if (btn) btn.classList.add('active');
+        setStatus("Modus: Verschieben (Pan)", CONFIG.colors.statusOk);
+    } else {
+        // Switch back to Rotate
+        controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+        if (btn) btn.classList.remove('active');
+        setStatus("Modus: Drehen (Rotate)", CONFIG.colors.statusOk);
+    }
+
+    controls.update();
+}
+
 export function initInteraction(scn, cam, ren, ctrl, grp) {
     scene = scn;
     camera = cam;
@@ -237,6 +260,12 @@ export function initInteraction(scn, cam, ren, ctrl, grp) {
     setupBtn('btn-cam-right', 'd');
     setupBtn('btn-cam-zoom-in', 'zin');
     setupBtn('btn-cam-zoom-out', 'zout');
+
+    // Pan Toggle
+    const btnPan = document.getElementById('btn-cam-pan-toggle');
+    if (btnPan) {
+        btnPan.addEventListener('click', togglePanMode);
+    }
 }
 
 // WASD State

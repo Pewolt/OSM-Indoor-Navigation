@@ -27,6 +27,7 @@ export const ELEMENTS = {
     btnLockStart: document.getElementById('btn-lock-start'),
     btnClearRoute: document.getElementById('btn-clear-route'),
     levelSelect: document.getElementById('in-level-select')
+    btnClearRoute: document.getElementById('btn-clear-route')
 };
 
 export function setStatus(text, color) {
@@ -119,3 +120,5 @@ export function populateLevelSelect(levels) {
         select.appendChild(opt);
     });
 }
+
+

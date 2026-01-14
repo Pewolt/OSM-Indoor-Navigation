@@ -25,6 +25,7 @@ body {
 }
 
 /* Left Panel: Controls */
+/* Left Panel: Controls */
 #ui-controls {
     top: 20px;
     left: 20px;
@@ -33,7 +34,14 @@ body {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    transition: all 0.3s ease;
+    /* Animate height/width changes */
 }
+
+
+
+
+
 
 /* Right Panel: Info */
 #ui-info {

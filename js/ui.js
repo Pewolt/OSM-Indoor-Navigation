@@ -25,6 +25,7 @@ export const ELEMENTS = {
     replayStatus: document.getElementById('replay-status'),
     // Tools
     btnLockStart: document.getElementById('btn-lock-start'),
+    btnClearRoute: document.getElementById('btn-clear-route'),
     btnClearRoute: document.getElementById('btn-clear-route')
 };
 
@@ -100,3 +101,6 @@ export function updateLockStatus(isLocked) {
         ELEMENTS.btnLockStart.style.background = isLocked ? "#22c55e" : "#3b82f6"; // Green if locked, Blue if unlocked
     }
 }
+
+
+

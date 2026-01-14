@@ -185,7 +185,7 @@ function animate() {
                 // Wait, if arrows point UP on texture, scrolling V offsets them.
 
                 // Let's just scroll offset.y
-                const speed = 0.5;
+                const speed = 0.01;
                 // We want arrows to flow FROM start TO end.
                 // If texture mapping is standard tube, V wraps around? U goes along?
                 // TubeGeometry: "U coordinates are defined along the tube length" -> NO.
@@ -196,7 +196,8 @@ function animate() {
                 // To animate "flow" towards end, we shift texture "backwards" so it looks like it's sliding forward?
                 // Visual check needed. Let's try offset.y -= delta.
 
-                mesh.material.map.offset.y -= 0.01;
+                const direction = mesh.userData.animDirection || 1;
+                mesh.material.map.offset.y -= speed * direction;
             }
         });
     }

@@ -125,36 +125,47 @@ export function createRailwayLine(groups, points, level, tags, osmId) {
 }
 
 // --- TEXTURE HELPER FOR ESCALATORS ---
-function createArrowTexture(colorHex) {
+function createArrowTexture(arrowColorHex, isFlipped = false) {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 64;
     const ctx = canvas.getContext('2d');
 
-    // Background
-    ctx.fillStyle = '#222222';
+    // Hintergrund (Orange)
+    ctx.fillStyle = '#f97316';
     ctx.fillRect(0, 0, 64, 64);
 
-    // Chevron pointing UP (V-axis)
+    ctx.fillStyle = arrowColorHex;
+
+    // Hilfsfunktion zum Spiegeln der X-Koordinate
+    // Wenn isFlipped true ist, wird 5 zu (64-5) = 59
+    const fX = (x) => isFlipped ? 64 - x : x;
+
     ctx.beginPath();
-    ctx.moveTo(10, 40);
-    ctx.lineTo(32, 20); // Tip
-    ctx.lineTo(54, 40);
-    ctx.lineTo(54, 50);
-    ctx.lineTo(32, 30); // Inner Tip
-    ctx.lineTo(10, 50);
+    ctx.moveTo(fX(5), 22);  
+    ctx.lineTo(fX(35), 22); 
+    ctx.lineTo(fX(35), 8);  
+    ctx.lineTo(fX(58), 32); // Spitze
+    ctx.lineTo(fX(35), 56); 
+    ctx.lineTo(fX(35), 42); 
+    ctx.lineTo(fX(5), 42);  
     ctx.closePath();
     ctx.fill();
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    // tex.rotation = Math.PI / 2; // Maybe adjust if mapping is sideways
+    
+    // Scharfe Darstellung
+    tex.minFilter = THREE.NearestFilter;
+    tex.magFilter = THREE.NearestFilter;
+
     return tex;
 }
 
-const texGreen = createArrowTexture('#22c55e'); // Green
-const texRed = createArrowTexture('#ef4444');   // Red
+// texGreen zeigt nach vorne (oben), texRed zeigt nach hinten (unten)
+const texGreen = createArrowTexture('#22c55e', false); 
+const texRed = createArrowTexture('#ef4444', true);
 
 // --- UPDATE VISUALS ---
 
@@ -194,7 +205,7 @@ export function updateStairVisuals(mesh, explosionOffset) {
     if (data.isEscalator) {
         // --- ESCALATOR (Ramp) ---
         // TubeGeometry: Radius 0.8
-        const tube = new THREE.TubeGeometry(curve, 20, 0.8, 4, false); // Radius 0.8
+        const tube = new THREE.TubeGeometry(curve, 20, 0.8, 8, false); // Radius 0.8
         mesh.geometry = tube;
 
         // Direction Logic based on conveying tag

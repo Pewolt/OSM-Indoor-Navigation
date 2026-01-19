@@ -25,6 +25,8 @@ export const ELEMENTS = {
     replayStatus: document.getElementById('replay-status'),
     // Tools
     btnLockStart: document.getElementById('btn-lock-start'),
+    btnClearRoute: document.getElementById('btn-clear-route'),
+    levelSelect: document.getElementById('in-level-select'),
     btnClearRoute: document.getElementById('btn-clear-route')
 };
 

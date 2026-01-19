@@ -132,7 +132,7 @@ function createArrowTexture(arrowColorHex, isFlipped = false) {
     const ctx = canvas.getContext('2d');
 
     // Hintergrund (Orange)
-    ctx.fillStyle = '#f97316';
+    ctx.fillStyle = '#cfd51b';
     ctx.fillRect(0, 0, 64, 64);
 
     ctx.fillStyle = arrowColorHex;
@@ -164,8 +164,8 @@ function createArrowTexture(arrowColorHex, isFlipped = false) {
 }
 
 // texGreen zeigt nach vorne (oben), texRed zeigt nach hinten (unten)
-const texGreen = createArrowTexture('#22c55e', false); 
-const texRed = createArrowTexture('#ef4444', true);
+const texGreen = createArrowTexture('#0ec241', false); 
+const texRed = createArrowTexture('#bb2e45', true);
 
 // --- UPDATE VISUALS ---
 
@@ -204,8 +204,8 @@ export function updateStairVisuals(mesh, explosionOffset) {
 
     if (data.isEscalator) {
         // --- ESCALATOR (Ramp) ---
-        // TubeGeometry: Radius 0.8
-        const tube = new THREE.TubeGeometry(curve, 20, 0.8, 8, false); // Radius 0.8
+        // TubeGeometry
+        const tube = new THREE.TubeGeometry(curve, 20, 0.6, 8, false); 
         mesh.geometry = tube;
 
         // Direction Logic based on conveying tag
@@ -235,8 +235,8 @@ export function updateStairVisuals(mesh, explosionOffset) {
         // Texture width 64px.
         // We want arrow to visually appear "normal". 
         // Let's repeat U (around) 6 times.
-        const segments = Math.max(1, Math.round(totalLen));
-        tex.repeat.set(6, segments); // U=6 (around), V=segments (along)
+        const segments = Math.max(1, Math.round(totalLen / 2));
+        tex.repeat.set(segments, 2); // U=6 (around), V=segments (along)
 
         // Store direction for animation in main.js
         mesh.userData.animDirection = isForward ? 1 : -1;

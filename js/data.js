@@ -149,22 +149,54 @@ function processSteps(groups, pts, tags, osmId) {
         rangeLevels = cleanLvl.split(';').map(parseFloat).filter(l => !isNaN(l)).sort((a, b) => a - b);
     }
     if (rangeLevels.length > 1) {
-        const minLvl = rangeLevels[0]; const maxLvl = rangeLevels[rangeLevels.length - 1];
+        const minLvl = rangeLevels[0]; 
+        const maxLvl = rangeLevels[rangeLevels.length - 1];
         let startLvl = minLvl, endLvl = maxLvl;
-        if (tags.incline === 'down') { startLvl = maxLvl; endLvl = minLvl; }
-
-        const startNode = pts[0]; const endNode = pts[pts.length - 1];
-        const id1 = `${startNode.id}_${startLvl}`; const id2 = `${endNode.id}_${endLvl}`;
-
-        if (!graph.nodes[id1]) graph.nodes[id1] = { id: id1, x: startNode.x, z: startNode.z, level: startLvl, osmId: startNode.id, neighbors: [] };
-        if (!graph.nodes[id2]) graph.nodes[id2] = { id: id2, x: endNode.x, z: endNode.z, level: endLvl, osmId: endNode.id, neighbors: [] };
-
-        const dist = Math.sqrt((startNode.x - endNode.x) ** 2 + (startNode.z - endNode.z) ** 2) * 2.0; // Penalty for stairs
-        const isOneway = tags.oneway === 'yes' || tags.conveying === 'yes';
-
-        graph.nodes[id1].neighbors.push({ id: id2, weight: dist });
-        if (!isOneway) graph.nodes[id2].neighbors.push({ id: id1, weight: dist });
-
+        
+        // incline bestimmt welches Ende oben/unten ist
+        if (tags.incline === 'down') { 
+            startLvl = maxLvl; 
+            endLvl = minLvl; 
+        }
+        
+        const startNode = pts[0]; 
+        const endNode = pts[pts.length - 1];
+        const id1 = `${startNode.id}_${startLvl}`;
+        const id2 = `${endNode.id}_${endLvl}`;
+        
+        if (!graph.nodes[id1]) graph.nodes[id1] = { 
+            id: id1, x: startNode.x, z: startNode.z, 
+            level: startLvl, osmId: startNode.id, neighbors: [] 
+        };
+        if (!graph.nodes[id2]) graph.nodes[id2] = { 
+            id: id2, x: endNode.x, z: endNode.z, 
+            level: endLvl, osmId: endNode.id, neighbors: [] 
+        };
+        
+        // Prüfe ob es eine Rolltreppe ist
+        const isEscalator = tags.conveying === 'forward' || tags.conveying === 'backward';
+        const isOneway = tags.oneway === 'yes';
+        
+        if (isEscalator) {
+            // Rolltreppen: 30% schneller als ein normaler Weg
+            const dist = Math.sqrt((startNode.x - endNode.x) ** 2 + (startNode.z - endNode.z) ** 2) * 0.7;
+            // Rolltreppe: nur in Bewegungsrichtung nutzbar
+            if (tags.conveying === 'forward') {
+                // Rolltreppe fährt vorwärts: nur von Start zu Ende
+                graph.nodes[id1].neighbors.push({ id: id2, weight: dist });
+            } else if (tags.conveying === 'backward') {
+                // Rolltreppe fährt rückwärts: nur von Ende zu Start
+                graph.nodes[id2].neighbors.push({ id: id1, weight: dist });
+            }
+        } else {
+            // Normale Treppen: Distanz 2x langsamer als ein normaler Weg
+            const dist = Math.sqrt((startNode.x - endNode.x) ** 2 + (startNode.z - endNode.z) ** 2) * 2.0;
+            graph.nodes[id1].neighbors.push({ id: id2, weight: dist });
+            if (!isOneway) {
+                graph.nodes[id2].neighbors.push({ id: id1, weight: dist });
+            }
+        }
+        
         createStairMesh(groups, pts, startLvl, endLvl, tags, osmId);
     }
 }

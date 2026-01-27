@@ -196,7 +196,7 @@ function animate() {
                 // To animate "flow" towards end, we shift texture "backwards" so it looks like it's sliding forward?
                 // Visual check needed. Let's try offset.y -= delta.
 
-                const direction = mesh.userData.animDirection || 1;
+                const direction = mesh.userData.animDirection;
                 mesh.material.map.offset.x -= speed * direction;
             }
         });

@@ -15,6 +15,7 @@ export async function loadData(lat, lon, rad, onSuccess, onError, onStatus) {
             relation["public_transport"="platform"](around:${rad},${lat},${lon});
             relation["railway"="platform"](around:${rad},${lat},${lon});
             relation["building"](around:${rad},${lat},${lon});
+            relation["indoor"](around:${rad},${lat},${lon});
             node["highway"="elevator"](around:${rad},${lat},${lon});
             node["entrance"](around:${rad},${lat},${lon});
             node["door"](around:${rad},${lat},${lon});

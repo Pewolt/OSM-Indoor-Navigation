@@ -167,7 +167,7 @@ function createArrowTexture(arrowColorHex, isFlipped = false) {
     const ctx = canvas.getContext('2d');
 
     // Hintergrund (Orange)
-    ctx.fillStyle = '#f97316';
+    ctx.fillStyle = '#cfd51b';
     ctx.fillRect(0, 0, 64, 64);
 
     ctx.fillStyle = arrowColorHex;
@@ -208,11 +208,7 @@ export function updateStairVisuals(mesh, explosionOffset) {
     const data = mesh.userData;
     if (!data.points || data.points.length < 2) return;
 
-    // Calculate real Y positions for all points
-    // We interpolate levels between start and end?
-    // Or do we assume linear slope?
-    // StartLvl and EndLvl are known.
-    // Calculate total length 2D
+    // --- 1. GEOMETRIE-BERECHNUNG ---
     let totalLen = 0;
     const dists = [0];
     for (let i = 0; i < data.points.length - 1; i++) {
@@ -225,84 +221,58 @@ export function updateStairVisuals(mesh, explosionOffset) {
     const endY = getY(data.endLvl, explosionOffset);
     const yDiff = endY - startY;
 
-    // Build 3D points
     const pts3d = data.points.map((p, i) => {
         const progress = totalLen > 0 ? dists[i] / totalLen : 0;
         const y = startY + (progress * yDiff);
         return new THREE.Vector3(p.x, y, p.z);
     });
-
     const curve = new THREE.CatmullRomCurve3(pts3d);
 
-    // Dispose old geometry
     if (mesh.geometry) mesh.geometry.dispose();
 
+    // --- 2. ROLLTREPPEN (ESCALATOR) ---
     if (data.isEscalator) {
-        // --- ESCALATOR (Ramp) ---
-        // TubeGeometry: Radius 0.8
-        const tube = new THREE.TubeGeometry(curve, 20, 0.8, 8, false); // Radius 0.8
-        mesh.geometry = tube;
+        mesh.geometry = new THREE.TubeGeometry(curve, 20, 0.6, 8, false);
 
-        // Direction Logic based on conveying tag
-        // 'forward' = along way (Green)
-        // 'backward' = against way (Red)
-        // 'yes' / other = default (Green?)
+        const drivesForward = (data.conveying !== 'backward'); 
+        const geoIsRising = endY > startY;
+        const isUpward = (drivesForward && geoIsRising) || (!drivesForward && !geoIsRising);
 
-        let isForward = true;
-        if (data.conveying === 'backward') isForward = false;
+        const baseTex = isUpward ? texGreen : texRed;
+        const tex = baseTex.clone(); 
+        const segments = Math.max(1, Math.round(totalLen / 2));
+        
+        // BASIS-RICHTUNG DER TEXTUR
+        // Wir fangen mit der Logik an, die für Grün (isUpward) funktioniert
+        let finalRepeatX = drivesForward ? segments : -segments;
+        let finalAnimDir = 1;
 
-        // Clone texture to allow individual repeat/offset per mesh
-        const baseTex = isForward ? texGreen : texRed;
-        if (mesh.material.map) mesh.material.map.dispose(); // Cleanup old
+        // DER FIX FÜR ROT (Downward):
+        // Wenn es eine rote Treppe ist, drehen wir den Pfeil um 180 Grad um (-1)
+        // Damit die Animation aber nicht auch umkippt, müssen wir animDirection ebenfalls umdrehen.
+        if (!isUpward) {
+            finalRepeatX *= -1; // Pfeil um 180 Grad drehen
+            finalAnimDir *= -1; // Animations-Vorzeichen anpassen, damit die Flussrichtung bleibt
+        }
 
-        const tex = baseTex.clone();
+        tex.repeat.set(finalRepeatX, 2);
+        mesh.userData.animDirection = finalAnimDir;
+
         tex.needsUpdate = true;
-
         mesh.material.map = tex;
-        mesh.material.color.setHex(0xffffff);
-        mesh.material.emissive.setHex(0xffffff);
         mesh.material.emissiveMap = tex;
         mesh.material.emissiveIntensity = 1.0;
-        mesh.material.transparent = false;
-
-        // Ensure texture repeats along length (V)
-        // Tube circumference is 2*PI*r = 2*PI*0.8 ~= 5.
-        // Texture width 64px.
-        // We want arrow to visually appear "normal". 
-        // Let's repeat U (around) 6 times.
-        const segments = Math.max(1, Math.round(totalLen));
-        tex.repeat.set(6, segments); // U=6 (around), V=segments (along)
-
-        // Store direction for animation in main.js
-        mesh.userData.animDirection = isForward ? 1 : -1;
+        mesh.material.emissive.setHex(0xffffff);
+        mesh.material.color.setHex(0xffffff);
 
     } else {
-        // --- STAIRS (Stepped) ---
-        // We construct a stepped mesh manually.
-        // Steps count ~ 2 steps per meter?
-        const stepHeight = 0.2; // 20cm
+        // --- 3. TREPPEN (STAIRS - BLEIBT UNVERÄNDERT) ---
+        const stepHeight = 0.2;
         const stepsCount = Math.max(2, Math.floor(Math.abs(yDiff) / stepHeight));
-
-        // We walk the curve.
-        const ptrs = [];
-        const width = 1.2;
-
-        // Simple "Ribbon" with steps? 
-        // Generative geometry:
-        // For each step i:
-        //   t1 = i/steps
-        //   t2 = (i+1)/steps
-        //   p1 = curve.getPoint(t1)
-        //   p2 = curve.getPoint(t2)
-        //   Tangent for normal (width)
-
-        // To be easier, let's just use a Tube for now but with "Box" segments? 
-        // No, user wants "Richtige Treppenmodelle".
-        // Let's build a Triangle Strip.
-
         const vertices = [];
         const indices = [];
-        // Helper to add quad
+        const width = 1.2;
+
         const addQuad = (v1, v2, v3, v4) => {
             const base = vertices.length / 3;
             vertices.push(v1.x, v1.y, v1.z, v2.x, v2.y, v2.z, v3.x, v3.y, v3.z, v4.x, v4.y, v4.z);
@@ -312,40 +282,22 @@ export function updateStairVisuals(mesh, explosionOffset) {
         for (let i = 0; i < stepsCount; i++) {
             const tA = i / stepsCount;
             const tB = (i + 1) / stepsCount;
-
             const pA = curve.getPoint(tA);
             const pB = curve.getPoint(tB);
             const tan = curve.getTangent(tA);
-
-            // Side vector
             const up = new THREE.Vector3(0, 1, 0);
             const side = new THREE.Vector3().crossVectors(tan, up).normalize().multiplyScalar(width / 2);
 
-            // Step: Horizontal (Tread) then Vertical (Riser)
-            // But pA and pB are on the slope.
-            // Tread: At Y_A, go from A to B' (where B' is B.x,z but A.y)
-            // Riser: At B, go from Y_A to Y_B
-
-            // Vertices for Tread
-            const t1 = new THREE.Vector3().copy(pA).add(side); // A Left
-            const t2 = new THREE.Vector3().copy(pA).sub(side); // A Right
-
-            // B projected to A's height
+            const t1 = new THREE.Vector3().copy(pA).add(side);
+            const t2 = new THREE.Vector3().copy(pA).sub(side);
             const pB_flat = new THREE.Vector3(pB.x, pA.y, pB.z);
-            const t3 = new THREE.Vector3().copy(pB_flat).sub(side); // B Right (Flat)
-            const t4 = new THREE.Vector3().copy(pB_flat).add(side); // B Left (Flat)
+            const t3 = new THREE.Vector3().copy(pB_flat).sub(side);
+            const t4 = new THREE.Vector3().copy(pB_flat).add(side);
+            const r3 = new THREE.Vector3().copy(pB).sub(side);
+            const r4 = new THREE.Vector3().copy(pB).add(side);
 
-            // Riser
-            // B Flat to B Real
-            const r1 = t4;
-            const r2 = t3;
-            const r3 = new THREE.Vector3().copy(pB).sub(side); // B Right (Real)
-            const r4 = new THREE.Vector3().copy(pB).add(side); // B Left (Real)
-
-            addQuad(t1, t2, t3, t4); // Tread
-            addQuad(r1, r2, r3, r4); // Riser
-
-            // Bottom/Side closing? Maybe skip for performance/visibility
+            addQuad(t1, t2, t3, t4); 
+            addQuad(t4, t3, r3, r4); 
         }
 
         const bufferGeo = new THREE.BufferGeometry();
@@ -354,7 +306,8 @@ export function updateStairVisuals(mesh, explosionOffset) {
         bufferGeo.computeVertexNormals();
         mesh.geometry = bufferGeo;
         mesh.material.map = null;
-        mesh.material.color.setHex(CONFIG.colors.stairs);
+        mesh.material.emissive.setHex(0x000000);
+        mesh.material.color.setHex(0xffa500);
     }
 }
 

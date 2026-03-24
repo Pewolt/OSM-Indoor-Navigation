@@ -27,6 +27,7 @@ export const ELEMENTS = {
     btnLockStart: document.getElementById('btn-lock-start'),
     btnClearRoute: document.getElementById('btn-clear-route'),
     levelSelect: document.getElementById('in-level-select'),
+    btnClearRoute: document.getElementById('btn-clear-route')
     btnCamPanToggle: document.getElementById('btn-cam-pan-toggle')
 };
 

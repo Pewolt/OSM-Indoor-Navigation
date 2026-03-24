@@ -1,6 +1,12 @@
-
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// --- NEU: POST-PROCESSING IMPORTS FÜR PAKET 4 ---
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
 import { CONFIG } from './config.js';
 import { loadData, onSearchInput } from './api.js';
 import { processData, clearData, nodeObjects } from './data.js';
@@ -11,7 +17,7 @@ import { initInteraction, setExplosionOffset, findTrackAndSetTarget, onSliderCha
 import { ELEMENTS, setStatus, initMobileMenu } from './ui.js';
 
 // --- GLOBALS ---
-let scene, camera, renderer, controls;
+let scene, camera, renderer, controls, composer;
 
 console.log("[DEBUG] main.js loaded");
 
@@ -37,70 +43,146 @@ function init() {
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
     camera.position.set(100, 150, 100);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Renderer (Schatten aktiviert)
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Weiche Schatten
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
 
-    const ambient = new THREE.AmbientLight(CONFIG.colors.ambientLight, 0.5);
-    scene.add(ambient);
-    const sun = new THREE.DirectionalLight(CONFIG.colors.sunLight, 1);
-    sun.position.set(100, 200, 50);
+    // --- BELEUCHTUNG ---
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+    hemiLight.position.set(0, 200, 0);
+    scene.add(hemiLight);
+
+    const sun = new THREE.DirectionalLight(CONFIG.colors.sunLight, 1.2);
+    sun.position.set(200, 400, 100);
+    sun.castShadow = true;
+
+    // Schatten-Kamera groß genug machen, um einen Bahnhof abzudecken
+    const d = 400;
+    sun.shadow.camera.left = -d;
+    sun.shadow.camera.right = d;
+    sun.shadow.camera.top = d;
+    sun.shadow.camera.bottom = -d;
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 1500;
+    sun.shadow.bias = -0.0005; // Verhindert "Shadow Acne" (Streifen auf Flächen)
+    sun.shadow.mapSize.width = 2048; // Hohe Auflösung
+    sun.shadow.mapSize.height = 2048;
     scene.add(sun);
 
-    // Add Groups to Scene
-    Object.values(groups).forEach(g => scene.add(g));
-
-    // Grid
+    // Grid (sollte Schatten empfangen)
     const grid = new THREE.GridHelper(500, 50, CONFIG.colors.grid1, CONFIG.colors.grid2);
     grid.position.y = -0.1;
     scene.add(grid);
 
+    // Unsichtbare Bodenplatte, um Schattenwurf auf dem Boden aufzufangen
+    const groundGeo = new THREE.PlaneGeometry(2000, 2000);
+    const groundMat = new THREE.ShadowMaterial({ opacity: 0.5 }); // Nur Schatten sichtbar
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.15;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Add Groups to Scene
+    Object.values(groups).forEach(g => scene.add(g));
+
+    // --- POST-PROCESSING (SSAO) ---
+    composer = new EffectComposer(renderer);
+
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    // SSAO Pass für Architektur-Tiefe
+    const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
+    ssaoPass.kernelRadius = 12; // Radius der Kontaktschatten
+    ssaoPass.minDistance = 0.002;
+    ssaoPass.maxDistance = 0.1;
+    composer.addPass(ssaoPass);
+
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
+
+
     // Initialize Interaction
     initInteraction(scene, camera, renderer, controls, groups);
 
-    // Event Listeners
-    ELEMENTS.btnLoad.addEventListener('click', onBtnLoadClick);
-    ELEMENTS.slider.addEventListener('input', (e) => setExplosionOffset(parseFloat(e.target.value)));
-    ELEMENTS.btnCloseInfo.addEventListener('click', () => ELEMENTS.infoPanel.style.display = 'none');
-    ELEMENTS.search.addEventListener('input', (e) => onSearchInput(e, ELEMENTS));
-    ELEMENTS.btnFindTrack.addEventListener('click', () => findTrackAndSetTarget(ELEMENTS.inTrack.value.trim().toLowerCase()));
+    // --- EVENT BINDING ---
+    if (ELEMENTS.btnLoad) ELEMENTS.btnLoad.addEventListener('click', onBtnLoadClick);
+    if (ELEMENTS.slider) ELEMENTS.slider.addEventListener('input', (e) => setExplosionOffset(parseFloat(e.target.value)));
+    if (ELEMENTS.btnCloseInfo) ELEMENTS.btnCloseInfo.addEventListener('click', () => ELEMENTS.infoPanel.style.display = 'none');
 
-    // Replay Listeners
-    ELEMENTS.btnReplayNext.addEventListener('click', () => stepReplay(1));
-    ELEMENTS.btnReplayPrev.addEventListener('click', () => stepReplay(-1));
+    if (ELEMENTS.search) {
+        ELEMENTS.search.addEventListener('input', (e) => onSearchInput(e, ELEMENTS, () => {
+            setStatus("Ort gefunden. Lade Gebäudedaten...", CONFIG.colors.statusWait);
+            onBtnLoadClick();
+        }));
+    }
 
-    // Tools Listeners
-    if (ELEMENTS.btnLockStart) ELEMENTS.btnLockStart.addEventListener('click', toggleStartLock);
-    if (ELEMENTS.btnClearRoute) ELEMENTS.btnClearRoute.addEventListener('click', clearRoute);
-
-    // Level Select Listener
-    if (ELEMENTS.levelSelect) {
-        ELEMENTS.levelSelect.addEventListener('change', (e) => {
-            updateLevelVisibility(e.target.value);
+    if (ELEMENTS.btnGeolocation) {
+        ELEMENTS.btnGeolocation.addEventListener('click', () => {
+            if ("geolocation" in navigator) {
+                setStatus("Suche GPS Standort...", CONFIG.colors.statusWait);
+                navigator.geolocation.getCurrentPosition((position) => {
+                    ELEMENTS.lat.value = position.coords.latitude;
+                    ELEMENTS.lon.value = position.coords.longitude;
+                    ELEMENTS.search.value = "Mein Standort";
+                    setStatus("Standort gefunden. Lade Daten...", CONFIG.colors.statusWait);
+                    onBtnLoadClick();
+                }, (error) => {
+                    setStatus("GPS Fehler: " + error.message, CONFIG.colors.statusError);
+                });
+            } else {
+                setStatus("Geolokalisierung wird nicht unterstützt.", CONFIG.colors.statusError);
+            }
         });
     }
 
+    if (ELEMENTS.btnFindTrack) {
+        ELEMENTS.btnFindTrack.addEventListener('click', () => {
+            const val = ELEMENTS.inTrack.value;
+            if (val) import('./interaction.js').then(m => m.findTrackAndSetTarget(val));
+        });
+    }
 
-    // Search close on outside click
+    if (ELEMENTS.btnReplayNext) ELEMENTS.btnReplayNext.addEventListener('click', () => stepReplay(1));
+    if (ELEMENTS.btnReplayPrev) ELEMENTS.btnReplayPrev.addEventListener('click', () => stepReplay(-1));
+    if (ELEMENTS.btnLockStart) ELEMENTS.btnLockStart.addEventListener('click', toggleStartLock);
+    if (ELEMENTS.btnClearRoute) ELEMENTS.btnClearRoute.addEventListener('click', clearRoute);
+
+    if (ELEMENTS.levelSelect) {
+        ELEMENTS.levelSelect.addEventListener('change', (e) => updateLevelVisibility(e.target.value));
+    }
+
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('.search-container')) {
+        if (ELEMENTS.results && !e.target.closest('.search-container')) {
             ELEMENTS.results.style.display = 'none';
         }
     });
 
-    initMobileMenu();
+    window.addEventListener('resize', onWindowResize, false);
 
+    initMobileMenu();
     animate();
 }
 
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight); // WICHTIG FÜR POST-PROCESSING
+}
+
 function onBtnLoadClick() {
-    ELEMENTS.btnLoad.disabled = true;
-    ELEMENTS.btnFindTrack.disabled = true;
+    if (ELEMENTS.btnLoad) ELEMENTS.btnLoad.disabled = true;
+    if (ELEMENTS.btnFindTrack) ELEMENTS.btnFindTrack.disabled = true;
 
     const lat = parseFloat(ELEMENTS.lat.value);
     const lon = parseFloat(ELEMENTS.lon.value);
@@ -112,20 +194,19 @@ function onBtnLoadClick() {
             setTimeout(() => {
                 handleDataLoaded(data, lat, lon);
                 setStatus("Bereit. Wähle Start oder Suche Ziel.", CONFIG.colors.statusOk);
-                ELEMENTS.btnFindTrack.disabled = false;
-                ELEMENTS.btnLoad.disabled = false;
+                if (ELEMENTS.btnFindTrack) ELEMENTS.btnFindTrack.disabled = false;
+                if (ELEMENTS.btnLoad) ELEMENTS.btnLoad.disabled = false;
             }, 50);
         },
         (errorMsg) => {
             setStatus(errorMsg, CONFIG.colors.statusError);
-            ELEMENTS.btnLoad.disabled = false;
+            if (ELEMENTS.btnLoad) ELEMENTS.btnLoad.disabled = false;
         },
         (statusMsg, color) => setStatus(statusMsg, color)
     );
 }
 
 function handleDataLoaded(data, centerLat, centerLon) {
-    // Clear old data
     Object.values(groups).forEach(g => {
         while (g.children.length > 0) {
             const obj = g.children[0];
@@ -140,9 +221,6 @@ function handleDataLoaded(data, centerLat, centerLon) {
 
     clearData();
     clearGraph();
-    // Reset route logic inside interaction is missing explicit clear call but clearing groups.path handles visuals
-    // State reset (startNodeId/endNodeId) should ideally happen here or users manually reset.
-    // We can rely on user clicking new points.
 
     const projectFn = (lat, lon) => {
         const x = (lon - centerLon) * 111320 * Math.cos(centerLat * Math.PI / 180);
@@ -152,15 +230,20 @@ function handleDataLoaded(data, centerLat, centerLon) {
 
     processData(data, centerLat, centerLon, projectFn, groups, (uniqueLevels) => {
         renderGraphNodes();
-        onSliderChange(); // Initial visual update
+        onSliderChange();
 
-        // Populate Level Select
         if (ELEMENTS.levelSelect && uniqueLevels) {
             import('./ui.js').then(module => {
                 module.populateLevelSelect(uniqueLevels);
-                ELEMENTS.levelSelect.value = 'all'; // Default
+                ELEMENTS.levelSelect.value = 'all';
             });
         }
+
+        import('./data.js').then(dataMod => {
+            import('./ui.js').then(uiMod => {
+                uiMod.populateTrackDropdown(dataMod.platformRegistry);
+            });
+        });
     });
 }
 
@@ -170,17 +253,10 @@ function updateLevelVisibility(targetLevel) {
 
     Object.values(groups).forEach(g => {
         g.children.forEach(obj => {
-            // Check userData.level
             if (obj.userData && obj.userData.level !== undefined) {
                 const myLevel = obj.userData.level;
-                // Complex objects might have ranges (e.g. stairs), but usually we assign one main level or handle separately.
-                // For now strict match.
-
                 let visible = isAll || (myLevel === lvl);
 
-                // Special handling for connections/stairs that span levels?
-                // Simplest approach: Show if either start or end level matches?
-                // Currently stairs have startLvl/endLvl.
                 if (obj.userData.isStair) {
                     visible = isAll || (obj.userData.startLvl === lvl || obj.userData.endLvl === lvl);
                 }
@@ -194,23 +270,16 @@ function updateLevelVisibility(targetLevel) {
 function renderGraphNodes() {
     const { positions, nodeObjList } = getGraphNodesData();
 
-    // We need to sync with data.js's nodeObjects for interaction
-    // The processData function already populates nodeObjects partly (entrances), 
-    // but graph nodes are separate. We should ADD graph nodes to nodeObjects.
-
-    // Actually, processData does NOT populate graph nodes into nodeObjects.
-    // We do it here.
     nodeObjList.forEach(obj => nodeObjects.push(obj));
 
     const pointGeo = new THREE.BufferGeometry();
     pointGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    // Make nodes smaller and semi-transparent to reduce clutter
     const pointMat = new THREE.PointsMaterial({
         color: CONFIG.colors.graphNode,
-        size: 2, // Smaller
+        size: 2,
         sizeAttenuation: true,
         transparent: true,
-        opacity: 0.4 // Less obtrusive
+        opacity: 0.4
     });
     const points = new THREE.Points(pointGeo, pointMat);
     points.userData = { isNodes: true };
@@ -220,38 +289,42 @@ function renderGraphNodes() {
 function animate() {
     requestAnimationFrame(animate);
 
-    // Animate Escalators
     if (groups.stairs) {
-        const time = Date.now() * 0.001;
         groups.stairs.children.forEach(mesh => {
             if (mesh.userData.isEscalator && mesh.material && mesh.material.map) {
-                // Determine direction: Forward along curve
-                // Our texture arrows point UP in texture space (V)
-                // If isUp (Green), we want them to move "Start->End" (along V)
-                // If isDown (Red), we want them to move "Start->End" (along V)
-                // Wait, if arrows point UP on texture, scrolling V offsets them.
+                const speed = 0.01;
+                const direction = mesh.userData.animDirection || 1;
+                mesh.material.map.offset.y -= speed * direction;
+            }
+        });
+    }
 
-                // Let's just scroll offset.y
-                const speed = 0.005;
-                // We want arrows to flow FROM start TO end.
-                // If texture mapping is standard tube, V wraps around? U goes along?
-                // TubeGeometry: "U coordinates are defined along the tube length" -> NO.
-                // Docs: "u stretches around the circumference... v stretches along the length". 
-                // So V is along the path.
-                // To move Start->End, we DECREASE offset.y (if texture V 0=start, 1=end)
-                // Correction: V usually 0 @ start, 1 @ end. 
-                // To animate "flow" towards end, we shift texture "backwards" so it looks like it's sliding forward?
-                // Visual check needed. Let's try offset.y -= delta.
+    if (camera && controls) {
+        const dist = camera.position.distanceTo(controls.target);
+        const fadeStart = 250;
+        const fadeEnd = 100;
 
-                const direction = mesh.userData.animDirection;
-                mesh.material.map.offset.x -= speed * direction;
+        groups.buildings.children.forEach(mesh => {
+            if (mesh.material) {
+                let newOpacity = 0.95;
+
+                if (dist < fadeEnd) {
+                    newOpacity = 0.08;
+                } else if (dist < fadeStart) {
+                    const ratio = (dist - fadeEnd) / (fadeStart - fadeEnd);
+                    newOpacity = 0.08 + (0.95 - 0.08) * ratio;
+                }
+
+                mesh.material.opacity = newOpacity;
             }
         });
     }
 
     updateMovement();
     controls.update();
-    renderer.render(scene, camera);
+
+    // ANSTATT renderer.render(scene, camera); NUTZEN WIR JETZT DEN COMPOSER!
+    composer.render();
 }
 
 init();

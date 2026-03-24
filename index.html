@@ -1,12 +1,80 @@
 <!DOCTYPE html>
-<html lang="de">
+<html class="dark" lang="de">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OSM Indoor Routing Pro v4.0 (Modular)</title>
+    <title>OSM Indoor Routing Pro v4.0 (Tailwind Edition)</title>
+
+    <!-- Tailwind & Fonts -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+
+    <!-- Deine alte CSS für Fallbacks und Three.js Canvas Positionierung -->
     <link rel="stylesheet" href="css/styles.css">
-    <link rel="stylesheet" href="css/controls.css">
+
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#b2c5ff",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "surface": "#0b1326",
+                        "surface-container-lowest": "#060e20",
+                        "surface-container-low": "#131b2e",
+                        "surface-container-high": "#222a3d",
+                        "surface-container-highest": "#2d3449",
+                        "on-surface": "#dae2fd",
+                        "on-surface-variant": "#c3c6d6",
+                        "outline-variant": "#424654",
+                        "error-container": "#93000a",
+                        "on-error-container": "#ffdad6",
+                        "primary-container": "#0056d2",
+                        "on-primary-container": "#ccd8ff"
+                    },
+                    fontFamily: {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .glass-panel {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        /* Überschreibe das alte Canvas Styling, damit es vollflächig im Hintergrund liegt */
+        #canvas-container {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+        }
+
+        /* Verstecke Scrollbars im UI Panel, erhalte aber Funktionalität */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+
     <script type="importmap">
         {
             "imports": {
@@ -17,129 +85,221 @@
     </script>
 </head>
 
-<body>
+<body
+    class="bg-surface text-on-surface font-body overflow-hidden h-screen w-screen selection:bg-primary selection:text-surface">
 
-    <!-- Mobile Menu Toggle -->
-    <button id="btn-menu-toggle" class="mobile-toggle">☰</button>
-
-    <!-- Controls Panel -->
-    <div id="ui-controls" class="panel">
-        <button id="btn-menu-close" class="close-btn mobile-only">&times;</button>
-        <div>
-            <h1>Indoor Routing</h1>
-            <div style="font-size: 0.75rem; color: #64748b;">Version 4.0 (Refactored)</div>
-        </div>
-
-        <!-- Search Box (Nominatim) -->
-        <div class="search-container">
-            <label>Ort/Adresse suchen</label>
-            <input type="text" id="in-search" placeholder="z.B. Berlin Hbf..." autocomplete="off">
-            <div id="search-results" class="results-list"></div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <div>
-                <label>Lat</label>
-                <input type="number" id="in-lat" step="0.0001" value="52.520008">
-            </div>
-            <div>
-                <label>Lon</label>
-                <input type="number" id="in-lon" step="0.0001" value="13.386908">
-            </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 8px; align-items: end;">
-            <div>
-                <label>Radius (m)</label>
-                <input type="number" id="in-rad" value="150">
-            </div>
-            <button id="btn-load" class="btn btn-small">Laden</button>
-        </div>
-
-        <div class="status-box">
-            Status: <span id="status-text" style="color: #eab308;">Warte auf Input...</span>
-        </div>
-
-        <!-- Track/Platform Selection -->
-        <div style="border-top: 1px solid #334155; padding-top: 12px; margin-top: 4px;">
-            <label>Suche Ziel (Gleis/Ref)</label>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <input type="text" id="in-track" placeholder="z.B. 5, 12a">
-                <button id="btn-find-track" class="btn btn-small" disabled>Finden</button>
-            </div>
-        </div>
-
-        <div style="border-top: 1px solid #334155; padding-top: 12px; margin-top: 4px;">
-            <label>Etagenauswahl (Level)</label>
-            <select id="in-level-select"
-                style="width: 100%; padding: 4px; background: #1e293b; color: white; border: 1px solid #475569; border-radius: 4px;">
-                <option value="all">Alle Etagen anzeigen</option>
-            </select>
-        </div>
-
-        <div style="border-top: 1px solid #334155; padding-top: 12px; margin-top: 4px;">
-            <label>Stockwerk-Explosion</label>
-            <input type="range" id="explode-slider" min="0" max="20" step="0.5" value="0">
-        </div>
-
-        <!-- Tools -->
-        <div style="border-top: 1px solid #334155; padding-top: 12px; margin-top: 4px;">
-            <label>Werkzeuge</label>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <button id="btn-lock-start" class="btn btn-small" style="background: #3b82f6;">Start fixieren
-                    🔓</button>
-                <button id="btn-clear-route" class="btn btn-small" style="background: #ef4444;">Route löschen
-                    🗑️</button>
-            </div>
-        </div>
-
-        <div class="status-box">
-            <div style="margin-bottom: 4px;">
-                <span class="status-dot dot-green"></span> Start: <span id="info-start" style="color:white">-</span>
-            </div>
-            <div>
-                <span class="status-dot dot-red"></span> Ziel: <span id="info-end" style="color:white">-</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Info Panel (Right) -->
-    <div id="ui-info" class="panel">
-        <span class="close-btn" id="btn-close-info">&times;</span>
-        <h2 id="info-title">Objekt Details</h2>
-        <div id="info-content" class="scroll-area">
-            <!-- Dynamic Content -->
-        </div>
-    </div>
-
-    <!-- Replay Controls -->
-    <div id="replay-controls" style="display: none;">
-        <button id="btn-replay-prev" class="replay-btn">←</button>
-        <span id="replay-status">Route</span>
-        <button id="btn-replay-next" class="replay-btn">→</button>
-    </div>
-
-    <div id="camera-controls">
-        <div class="controls-dpad">
-            <div class="control-row">
-                <button id="btn-cam-forward">▲</button>
-            </div>
-            <div class="control-row">
-                <button id="btn-cam-left">◀</button>
-                <button id="btn-cam-back">▼</button>
-                <button id="btn-cam-right">▶</button>
-            </div>
-        </div>
-        <div class="controls-zoom">
-            <button id="btn-cam-zoom-in" title="Zoom In">＋</button>
-            <button id="btn-cam-zoom-out" title="Zoom Out">－</button>
-            <div style="height: 10px;"></div>
-            <button id="btn-cam-pan-toggle" title="Pan Modus (Verschieben)">✋</button>
-        </div>
-    </div>
-
-    <div id="instruction">Linksklick: Start wählen • Suche: Ziel wählen</div>
+    <!-- 3D Canvas Container -->
     <div id="canvas-container"></div>
+
+    <!-- Main UI Overlay -->
+    <main
+        class="relative z-10 w-full h-full pointer-events-none p-4 md:p-6 flex flex-col md:flex-row gap-6 justify-between">
+
+        <!-- === LINKS: Steuerungs-Panel === -->
+        <section class="w-full max-w-sm pointer-events-auto flex flex-col h-full gap-4">
+            <div id="ui-controls"
+                class="glass-panel bg-surface-container-low/80 rounded-2xl p-6 shadow-2xl border border-white/5 flex flex-col gap-5 overflow-y-auto hide-scrollbar max-h-full">
+
+                <header>
+                    <h2 class="font-headline text-lg font-bold text-white flex items-center gap-2">
+                        <span class="material-symbols-outlined text-primary">directions</span>
+                        Indoor Routing
+                    </h2>
+                    <p class="font-label text-xs text-on-surface-variant mt-1 tracking-widest uppercase">Version 4.1
+                        (Tailwind)</p>
+                </header>
+
+                <!-- 1. Ort Suche & Hidden Inputs -->
+                <div class="space-y-2 relative">
+                    <label
+                        class="font-label text-[10px] text-on-surface-variant uppercase tracking-widest">Standort</label>
+                    <div class="flex gap-2">
+                        <div class="relative flex-grow">
+                            <span
+                                class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant text-sm">search</span>
+                            <input id="in-search"
+                                class="w-full bg-surface-container-highest border-none rounded-xl pl-9 py-2.5 text-on-surface placeholder:text-on-surface-variant focus:ring-2 focus:ring-primary/50 text-sm transition-all"
+                                placeholder="z.B. Berlin Hbf..." type="text" autocomplete="off" />
+                        </div>
+                        <button id="btn-geolocation"
+                            class="bg-surface-container-highest hover:bg-primary/20 border-none rounded-xl px-3 py-2.5 text-primary transition-all"
+                            title="Mein Standort">
+                            <span class="material-symbols-outlined">my_location</span>
+                        </button>
+                    </div>
+                    <!-- Suchergebnisse -->
+                    <div id="search-results"
+                        class="absolute top-full left-0 w-full mt-1 bg-surface-container-high border border-outline-variant/30 rounded-xl shadow-xl z-50 overflow-hidden hidden">
+                    </div>
+                </div>
+
+                <div style="display: none;">
+                    <input type="number" id="in-lat" step="0.0001" value="52.520008">
+                    <input type="number" id="in-lon" step="0.0001" value="13.386908">
+                    <input type="number" id="in-rad" value="150">
+                    <button id="btn-load">Laden</button>
+                </div>
+
+                <!-- 2. Status Box -->
+                <div
+                    class="bg-surface-container-highest/50 border border-white/5 rounded-xl p-3 flex items-start gap-3">
+                    <span class="material-symbols-outlined text-primary text-sm mt-0.5">info</span>
+                    <div>
+                        <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-0.5">System
+                            Status</p>
+                        <p id="status-text" class="text-xs text-yellow-400 font-body leading-relaxed">Warte auf Input...
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 3. Gleisauswahl -->
+                <div>
+                    <label
+                        class="font-label text-[10px] text-on-surface-variant uppercase tracking-widest mb-2 block">Ziel
+                        (Gleis/Ref)</label>
+                    <div class="flex gap-2">
+                        <select id="in-track"
+                            class="w-full bg-surface-container-highest border-none rounded-xl px-3 py-2.5 text-on-surface text-sm focus:ring-2 focus:ring-primary/50">
+                            <option value="">-- Lade Daten zuerst --</option>
+                        </select>
+                        <button id="btn-find-track"
+                            class="bg-primary-container text-on-primary-container disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2.5 rounded-xl font-bold text-sm transition-all"
+                            disabled>Finden</button>
+                    </div>
+                </div>
+
+                <!-- 4. Etagenauswahl -->
+                <div>
+                    <label
+                        class="font-label text-[10px] text-on-surface-variant uppercase tracking-widest mb-2 block">Level
+                        Select</label>
+                    <select id="in-level-select"
+                        class="w-full bg-surface-container-highest border-none rounded-xl px-3 py-2.5 text-on-surface text-sm focus:ring-2 focus:ring-primary/50">
+                        <option value="all">Alle Etagen anzeigen</option>
+                    </select>
+                </div>
+
+                <!-- 5. Explosion Slider -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="font-label text-[10px] text-on-surface-variant uppercase tracking-widest">Floor
+                            Explosion</label>
+                    </div>
+                    <input id="explode-slider"
+                        class="w-full h-1.5 bg-surface-container-highest rounded-full appearance-none cursor-pointer accent-primary"
+                        type="range" min="0" max="20" step="0.5" value="0" />
+                </div>
+
+                <!-- 6. Tools & Nodes -->
+                <div class="mt-2 space-y-3">
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="btn-lock-start"
+                            class="bg-surface-container-highest hover:bg-primary/20 text-primary border border-primary/20 font-headline py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1">
+                            <span class="material-symbols-outlined text-sm">lock_open</span> Start fixieren
+                        </button>
+                        <button id="btn-clear-route"
+                            class="bg-error-container/20 hover:bg-error-container text-red-400 border border-red-500/20 font-headline py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1">
+                            <span class="material-symbols-outlined text-sm">delete</span> Route löschen
+                        </button>
+                    </div>
+
+                    <div
+                        class="bg-surface-container-lowest/40 rounded-xl p-3 border border-white/5 text-xs text-on-surface-variant space-y-1">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-green-500"></div> Start: <span id="info-start"
+                                class="text-white">-</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-red-500"></div> Ziel: <span id="info-end"
+                                class="text-white">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Spacer -->
+        <div class="flex-grow"></div>
+
+        <!-- === RECHTS: Info Panel & Kamera Steuerung === -->
+        <section class="w-full max-w-xs pointer-events-none flex flex-col gap-4 justify-between h-full">
+
+            <!-- Object Details (Standardmäßig versteckt) -->
+            <div id="ui-info"
+                class="pointer-events-auto glass-panel bg-surface-container-high/90 rounded-2xl p-5 shadow-2xl border border-white/5 flex-col gap-4 hidden max-h-[60vh] overflow-y-auto hide-scrollbar relative">
+                <button id="btn-close-info"
+                    class="absolute top-4 right-4 text-on-surface-variant hover:text-white"><span
+                        class="material-symbols-outlined text-lg">close</span></button>
+                <h3
+                    class="font-headline text-sm font-bold text-white border-b border-outline-variant/30 pb-3 flex items-center gap-2 pr-6">
+                    <span class="material-symbols-outlined text-primary text-base">database</span>
+                    <span id="info-title">Objekt Details</span>
+                </h3>
+                <div id="info-content" class="space-y-3">
+                    <!-- Dynamic Content comes from ui.js -->
+                </div>
+            </div>
+
+            <div class="flex-grow"></div>
+
+            <!-- Camera Controls -->
+            <div id="camera-controls" class="pointer-events-auto self-end flex flex-col items-center gap-3">
+                <!-- D-Pad -->
+                <div
+                    class="grid grid-cols-3 gap-1 glass-panel bg-surface-container-highest/60 p-2 rounded-xl border border-white/5">
+                    <div></div>
+                    <button id="btn-cam-forward"
+                        class="w-10 h-10 flex items-center justify-center text-on-surface hover:text-primary-fixed hover:bg-white/5 rounded-lg transition-all"><span
+                            class="material-symbols-outlined">expand_less</span></button>
+                    <div></div>
+                    <button id="btn-cam-left"
+                        class="w-10 h-10 flex items-center justify-center text-on-surface hover:text-primary-fixed hover:bg-white/5 rounded-lg transition-all"><span
+                            class="material-symbols-outlined">chevron_left</span></button>
+                    <div class="w-10 h-10 flex items-center justify-center text-primary/50"><span
+                            class="material-symbols-outlined text-sm">control_camera</span></div>
+                    <button id="btn-cam-right"
+                        class="w-10 h-10 flex items-center justify-center text-on-surface hover:text-primary-fixed hover:bg-white/5 rounded-lg transition-all"><span
+                            class="material-symbols-outlined">chevron_right</span></button>
+                    <div></div>
+                    <button id="btn-cam-back"
+                        class="w-10 h-10 flex items-center justify-center text-on-surface hover:text-primary-fixed hover:bg-white/5 rounded-lg transition-all"><span
+                            class="material-symbols-outlined">expand_more</span></button>
+                    <div></div>
+                </div>
+                <!-- Zoom/Pan Controls -->
+                <div
+                    class="flex gap-2 glass-panel bg-surface-container-highest/60 p-2 rounded-xl border border-white/5">
+                    <button id="btn-cam-zoom-in"
+                        class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-white/5 rounded-lg transition-all"
+                        title="Zoom In"><span class="material-symbols-outlined">add</span></button>
+                    <button id="btn-cam-zoom-out"
+                        class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-white/5 rounded-lg transition-all"
+                        title="Zoom Out"><span class="material-symbols-outlined">remove</span></button>
+                    <div class="w-px h-6 bg-outline-variant/30 self-center mx-1"></div>
+                    <button id="btn-cam-pan-toggle"
+                        class="w-10 h-10 flex items-center justify-center text-on-surface hover:text-primary-fixed hover:bg-white/5 rounded-lg transition-all"
+                        title="Pan Modus"><span class="material-symbols-outlined">pan_tool</span></button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Replay Control Bar (Bottom Center) -->
+    <footer id="replay-controls"
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-surface-container-lowest/90 backdrop-blur-lg px-6 py-2 flex justify-center items-center gap-6 z-[110] border border-white/10 shadow-2xl hidden pointer-events-auto">
+        <button id="btn-replay-prev" class="flex flex-col items-center gap-1 group">
+            <span
+                class="material-symbols-outlined text-slate-400 group-hover:text-white transition-all text-xl">fast_rewind</span>
+        </button>
+        <div class="flex flex-col items-center px-4 border-x border-white/10">
+            <span class="font-label text-[10px] font-bold uppercase text-primary tracking-widest">Route</span>
+            <span id="replay-status" class="text-sm font-bold text-white">0/0</span>
+        </div>
+        <button id="btn-replay-next" class="flex flex-col items-center gap-1 group">
+            <span
+                class="material-symbols-outlined text-slate-400 group-hover:text-white transition-all text-xl">fast_forward</span>
+        </button>
+    </footer>
 
     <script type="module" src="js/main.js?v=2"></script>
 </body>

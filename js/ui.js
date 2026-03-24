@@ -1,8 +1,8 @@
-
 import { osmCache } from './data.js';
 
 export const ELEMENTS = {
     search: document.getElementById('in-search'),
+    btnGeolocation: document.getElementById('btn-geolocation'),
     results: document.getElementById('search-results'),
     lat: document.getElementById('in-lat'),
     lon: document.getElementById('in-lon'),
@@ -18,78 +18,130 @@ export const ELEMENTS = {
     btnCloseInfo: document.getElementById('btn-close-info'),
     inTrack: document.getElementById('in-track'),
     btnFindTrack: document.getElementById('btn-find-track'),
-    // Replay
     replayControls: document.getElementById('replay-controls'),
     btnReplayPrev: document.getElementById('btn-replay-prev'),
     btnReplayNext: document.getElementById('btn-replay-next'),
     replayStatus: document.getElementById('replay-status'),
-    // Tools
     btnLockStart: document.getElementById('btn-lock-start'),
     btnClearRoute: document.getElementById('btn-clear-route'),
     levelSelect: document.getElementById('in-level-select'),
-    btnClearRoute: document.getElementById('btn-clear-route')
     btnCamPanToggle: document.getElementById('btn-cam-pan-toggle')
 };
 
 export function setStatus(text, color) {
+    if (!ELEMENTS.status) return;
     ELEMENTS.status.innerText = text;
-    ELEMENTS.status.style.color = color || 'white';
+    // Wir entfernen inline styles für Tailwind, außer wir wollen wirklich hart überschreiben
+    ELEMENTS.status.style.color = color || '';
 }
 
 export function showInfo(osmId, typeLabel) {
     const tags = osmCache[osmId] || {};
+    // Nutze Flexbox anstatt 'block', um das neue Design zu respektieren
     ELEMENTS.infoPanel.style.display = 'flex';
-    ELEMENTS.infoTitle.innerText = tags.name || typeLabel || osmId;
-    let html = `<table class="attr-table">`;
-    html += `<tr><td class="key">OSM ID</td><td class="val">${osmId}</td></tr>`;
+    ELEMENTS.infoPanel.classList.remove('hidden');
+
+    if (ELEMENTS.infoTitle) ELEMENTS.infoTitle.innerText = tags.name || typeLabel || osmId;
+
+    // Tailwind-styled Liste anstelle einer HTML-Tabelle
+    let html = `<div class="flex flex-col gap-3">`;
+    html += `
+        <div class="flex flex-col gap-1">
+            <span class="font-label text-[10px] text-on-surface-variant uppercase tracking-widest">OSM ID</span>
+            <span class="text-sm font-body text-primary-fixed-dim font-mono">${osmId}</span>
+        </div>
+    `;
+
     for (let [k, v] of Object.entries(tags)) {
-        html += `<tr><td class="key">${k}</td><td class="val">${v}</td></tr>`;
+        html += `
+            <div class="flex flex-col gap-1">
+                <span class="font-label text-[10px] text-on-surface-variant uppercase tracking-widest">${k}</span>
+                <span class="text-sm font-body text-white break-words">${v}</span>
+            </div>
+        `;
     }
-    html += `</table>`;
-    ELEMENTS.infoContent.innerHTML = html;
+    html += `</div>`;
+
+    if (ELEMENTS.infoContent) ELEMENTS.infoContent.innerHTML = html;
 }
 
 export function hideInfo() {
-    ELEMENTS.infoPanel.style.display = 'none';
+    if (ELEMENTS.infoPanel) {
+        ELEMENTS.infoPanel.style.display = 'none';
+        ELEMENTS.infoPanel.classList.add('hidden');
+    }
 }
 
-export function renderSearchResults(data, uiElements) {
-    // uiElements can be passed or we use global ELEMENTS if initialized
+export function renderSearchResults(data, uiElements, onSelectCallback) {
     const resultsContainer = uiElements ? uiElements.results : ELEMENTS.results;
     const latInput = uiElements ? uiElements.lat : ELEMENTS.lat;
     const lonInput = uiElements ? uiElements.lon : ELEMENTS.lon;
     const searchInput = uiElements ? uiElements.search : ELEMENTS.search;
 
+    if (!resultsContainer) return;
+
     resultsContainer.innerHTML = '';
     if (data.length === 0) {
-        resultsContainer.style.display = 'none';
+        resultsContainer.classList.add('hidden');
         return;
     }
     data.forEach(item => {
         const div = document.createElement('div');
-        div.className = 'result-item';
+        // Tailwind styling für die Dropdown-Elemente
+        div.className = 'px-4 py-3 text-sm text-on-surface hover:bg-primary/20 hover:text-white cursor-pointer border-b border-outline-variant/30 last:border-0 transition-colors';
         div.innerText = item.display_name.split(',').slice(0, 3).join(',');
         div.addEventListener('click', () => {
-            latInput.value = item.lat;
-            lonInput.value = item.lon;
-            searchInput.value = div.innerText;
-            resultsContainer.style.display = 'none';
-            setStatus("Ort übernommen. Klicke 'Laden'.", "#eab308");
+            if (latInput) latInput.value = item.lat;
+            if (lonInput) lonInput.value = item.lon;
+            if (searchInput) searchInput.value = div.innerText;
+            resultsContainer.classList.add('hidden');
+            if (onSelectCallback) onSelectCallback();
         });
         resultsContainer.appendChild(div);
     });
-    resultsContainer.style.display = 'block';
+    resultsContainer.classList.remove('hidden');
+}
+
+export function populateTrackDropdown(registry) {
+    const select = ELEMENTS.inTrack;
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- Wähle ein Ziel --</option>';
+
+    const tracks = [];
+    for (let key in registry) {
+        const p = registry[key];
+        const name = p.trackRef || p.localRef || p.ref || p.name;
+        if (name && !tracks.some(t => t === name)) {
+            tracks.push(name);
+        }
+    }
+
+    tracks.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+    tracks.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.toLowerCase();
+        opt.innerText = `Gleis / Ref ${t}`;
+        select.appendChild(opt);
+    });
 }
 
 export function updateRouteInfo(startNode, endNode) {
-    ELEMENTS.infoStart.innerText = startNode ? startNode.osmId : "-";
-    ELEMENTS.infoEnd.innerText = endNode ? endNode.osmId : "-";
+    if (ELEMENTS.infoStart) ELEMENTS.infoStart.innerText = startNode ? startNode.osmId : "-";
+    if (ELEMENTS.infoEnd) ELEMENTS.infoEnd.innerText = endNode ? endNode.osmId : "-";
 }
 
 export function showReplayControls(show) {
     if (ELEMENTS.replayControls) {
-        ELEMENTS.replayControls.style.display = show ? 'flex' : 'none';
-        if (!show) updateReplayStatus("-"); // Reset on hide
+        if (show) {
+            ELEMENTS.replayControls.style.display = 'flex';
+            ELEMENTS.replayControls.classList.remove('hidden');
+        } else {
+            ELEMENTS.replayControls.style.display = 'none';
+            ELEMENTS.replayControls.classList.add('hidden');
+            updateReplayStatus("-");
+        }
     }
 }
 
@@ -99,8 +151,17 @@ export function updateReplayStatus(text) {
 
 export function updateLockStatus(isLocked) {
     if (ELEMENTS.btnLockStart) {
-        ELEMENTS.btnLockStart.innerText = isLocked ? "Start fixiert 🔒" : "Start fixieren 🔓";
-        ELEMENTS.btnLockStart.style.background = isLocked ? "#22c55e" : "#3b82f6"; // Green if locked, Blue if unlocked
+        ELEMENTS.btnLockStart.innerHTML = isLocked ? `<span class="material-symbols-outlined text-sm">lock</span> Start fixiert` : `<span class="material-symbols-outlined text-sm">lock_open</span> Start fixieren`;
+
+        if (isLocked) {
+            ELEMENTS.btnLockStart.classList.replace('bg-surface-container-highest', 'bg-green-500/20');
+            ELEMENTS.btnLockStart.classList.replace('text-primary', 'text-green-400');
+            ELEMENTS.btnLockStart.classList.replace('border-primary/20', 'border-green-500/20');
+        } else {
+            ELEMENTS.btnLockStart.classList.replace('bg-green-500/20', 'bg-surface-container-highest');
+            ELEMENTS.btnLockStart.classList.replace('text-green-400', 'text-primary');
+            ELEMENTS.btnLockStart.classList.replace('border-green-500/20', 'border-primary/20');
+        }
     }
 }
 
@@ -108,10 +169,7 @@ export function populateLevelSelect(levels) {
     const select = ELEMENTS.levelSelect;
     if (!select) return;
 
-    // Keep the first "All" option
     select.innerHTML = '<option value="all">Alle Etagen anzeigen</option>';
-
-    // Sort levels numerically
     levels.sort((a, b) => a - b);
 
     levels.forEach(lvl => {
@@ -122,21 +180,6 @@ export function populateLevelSelect(levels) {
     });
 }
 
-
 export function initMobileMenu() {
-    const btnToggle = document.getElementById('btn-menu-toggle');
-    const btnClose = document.getElementById('btn-menu-close');
-    const controls = document.getElementById('ui-controls');
-
-    if (btnToggle && controls) {
-        btnToggle.addEventListener('click', () => {
-            controls.classList.add('open');
-        });
-    }
-
-    if (btnClose && controls) {
-        btnClose.addEventListener('click', () => {
-            controls.classList.remove('open');
-        });
-    }
+    // Falls du das Burger Menü später wieder einbauen willst, hier ist der Hook
 }

@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 
@@ -13,7 +12,6 @@ export function getY(level, explosionOffset = 0) {
     return (level * CONFIG.floorHeight) + (level * explosionOffset);
 }
 
-// Textur Helper
 function createStripedTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 32;
@@ -37,20 +35,32 @@ export function createMeshFromShape(groups, shape, level, tags, osmId) {
     let borderColor = CONFIG.colors.roomBorder;
     let isPlatform = false;
 
+    const isBuilding = (tags.building && tags.building !== 'no') || tags['building:part'];
+    const isRoom = tags.indoor === 'room' || tags.indoor === 'corridor' || tags.indoor === 'level' || tags.wall;
+
     if (tags.type === 'platform') {
         color = CONFIG.colors.platform;
         opacity = 1.0;
         height = 0.6;
         borderColor = CONFIG.colors.platformBorder;
         isPlatform = true;
-    } else if (tags.building || tags.indoor === 'room' || tags.indoor === 'corridor' || tags.indoor === 'level') {
-        color = 0x334155; // Lighter than background
-        opacity = 0.8; // Make walls transparent
+    } else if (isBuilding && !isRoom) {
+        color = CONFIG.colors.building;
+        opacity = 0.95;
+        depthWrite = true;
+
+        let levelsCount = parseFloat(tags['building:levels']) || 1;
+        height = parseFloat(tags.height) || (levelsCount * CONFIG.floorHeight);
+    } else {
+        color = CONFIG.colors.room;
+        opacity = 0.4;
         depthWrite = false;
+        height = CONFIG.roomHeight;
     }
 
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: -height, bevelEnabled: false });
-    geo.rotateX(Math.PI / 2); // Rotate to lay flat
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
+    geo.rotateX(Math.PI / 2);
+    geo.translate(0, height, 0);
 
     let mat;
     if (isPlatform) {
@@ -63,46 +73,48 @@ export function createMeshFromShape(groups, shape, level, tags, osmId) {
             roughness: 0.7,
             metalness: 0.1
         });
+    } else if (isBuilding && !isRoom) {
+        mat = new THREE.MeshStandardMaterial({
+            color: color,
+            transparent: true,
+            opacity: opacity,
+            side: THREE.DoubleSide,
+            depthWrite: true,
+            roughness: 0.9,
+            metalness: 0.0
+        });
     } else {
-        // Multi-material for Buildings/Rooms
-        // Index 0: Side walls
-        // Index 1: Top/Bottom caps (Floors/Ceilings)
-
         const matWalls = new THREE.MeshStandardMaterial({
             color: color,
             transparent: true,
-            opacity: opacity * 0.3, // Walls are more transparent than floors
+            opacity: opacity * 0.4,
             side: THREE.DoubleSide,
             depthWrite: false,
-            roughness: 0.1,
-            metalness: 0.1
+            roughness: 0.1
         });
-
         const matCaps = new THREE.MeshStandardMaterial({
-            color: color, // Same color
+            color: color,
             transparent: true,
-            opacity: opacity, // Use the opacity set above (0.8 from user edit)
+            opacity: opacity,
             side: THREE.DoubleSide,
             depthWrite: false,
-            roughness: 0.8,
-            metalness: 0.0
+            roughness: 0.8
         });
-
-        mat = [matCaps, matWalls]; // ExtrudeGeometry uses [Cap, Side] order? No, usually [Side, Cap] or [Front, Back, Side...]
-        // Actually ExtrudeGeometry groups: 0 = Side, 1 = Top/Bottom Cap.
-        // Wait, three.js docs say: "When using an array of materials... The first material is used for the faces of the extrusion, the second material for the front and back faces (caps)."
-        // So: [Side, Cap]
-        mat = [matWalls, matCaps];
+        mat = [matCaps, matWalls];
     }
 
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.userData = { level: level, isRoom: true, osmId: osmId };
+    mesh.userData = { level: level, isRoom: isRoom, isBuilding: (isBuilding && !isRoom), osmId: osmId };
 
-    if (tags.type === 'platform') groups.platforms.add(mesh);
+    // SCHATTEN AKTIVIEREN
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    if (isPlatform) groups.platforms.add(mesh);
+    else if (isBuilding && !isRoom) groups.buildings.add(mesh);
     else groups.rooms.add(mesh);
 
-    // Edges - only for platforms or specific needs to reduce clutter
-    if (tags.type === 'platform') {
+    if (isPlatform) {
         const edges = new THREE.EdgesGeometry(geo);
         const lineMat = new THREE.LineBasicMaterial({
             color: borderColor,
@@ -135,6 +147,8 @@ export function createPlatformLine(groups, points, level, tags, osmId) {
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData = { level: level, osmId: osmId };
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     groups.platforms.add(mesh);
 }
 
@@ -150,12 +164,13 @@ export function createRailwayLine(groups, points, level, tags, osmId) {
     const mat = new THREE.MeshStandardMaterial({
         map: texture,
         roughness: 0.8,
-        metalness: 0.2, // Improved metalness
+        metalness: 0.2,
         color: CONFIG.colors.railway
     });
 
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData = { level: level, osmId: osmId };
+    mesh.receiveShadow = true;
     groups.railways.add(mesh);
 }
 
@@ -166,21 +181,17 @@ function createArrowTexture(arrowColorHex, isFlipped = false) {
     canvas.height = 64;
     const ctx = canvas.getContext('2d');
 
-    // Hintergrund (Orange)
-    ctx.fillStyle = '#cfd51b';
+    ctx.fillStyle = '#f97316';
     ctx.fillRect(0, 0, 64, 64);
-
     ctx.fillStyle = arrowColorHex;
 
-    // Hilfsfunktion zum Spiegeln der X-Koordinate
-    // Wenn isFlipped true ist, wird 5 zu (64-5) = 59
     const fX = (x) => isFlipped ? 64 - x : x;
 
     ctx.beginPath();
     ctx.moveTo(fX(5), 22);
     ctx.lineTo(fX(35), 22);
     ctx.lineTo(fX(35), 8);
-    ctx.lineTo(fX(58), 32); // Spitze
+    ctx.lineTo(fX(58), 32);
     ctx.lineTo(fX(35), 56);
     ctx.lineTo(fX(35), 42);
     ctx.lineTo(fX(5), 42);
@@ -190,15 +201,12 @@ function createArrowTexture(arrowColorHex, isFlipped = false) {
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-
-    // Scharfe Darstellung
     tex.minFilter = THREE.NearestFilter;
     tex.magFilter = THREE.NearestFilter;
 
     return tex;
 }
 
-// texGreen zeigt nach vorne (oben), texRed zeigt nach hinten (unten)
 const texGreen = createArrowTexture('#22c55e', false);
 const texRed = createArrowTexture('#ef4444', true);
 
@@ -208,7 +216,6 @@ export function updateStairVisuals(mesh, explosionOffset) {
     const data = mesh.userData;
     if (!data.points || data.points.length < 2) return;
 
-    // --- 1. GEOMETRIE-BERECHNUNG ---
     let totalLen = 0;
     const dists = [0];
     for (let i = 0; i < data.points.length - 1; i++) {
@@ -226,53 +233,42 @@ export function updateStairVisuals(mesh, explosionOffset) {
         const y = startY + (progress * yDiff);
         return new THREE.Vector3(p.x, y, p.z);
     });
+
     const curve = new THREE.CatmullRomCurve3(pts3d);
 
     if (mesh.geometry) mesh.geometry.dispose();
 
-    // --- 2. ROLLTREPPEN (ESCALATOR) ---
     if (data.isEscalator) {
-        mesh.geometry = new THREE.TubeGeometry(curve, 20, 0.6, 8, false);
+        const tube = new THREE.TubeGeometry(curve, 20, 0.8, 8, false);
+        mesh.geometry = tube;
 
-        const drivesForward = (data.conveying !== 'backward'); 
-        const geoIsRising = endY > startY;
-        const isUpward = (drivesForward && geoIsRising) || (!drivesForward && !geoIsRising);
+        let isForward = true;
+        if (data.conveying === 'backward') isForward = false;
 
-        const baseTex = isUpward ? texGreen : texRed;
-        const tex = baseTex.clone(); 
-        const segments = Math.max(1, Math.round(totalLen / 2));
-        
-        // BASIS-RICHTUNG DER TEXTUR
-        // Wir fangen mit der Logik an, die für Grün (isUpward) funktioniert
-        let finalRepeatX = drivesForward ? segments : -segments;
-        let finalAnimDir = 1;
+        const baseTex = isForward ? texGreen : texRed;
+        if (mesh.material.map) mesh.material.map.dispose();
 
-        // DER FIX FÜR ROT (Downward):
-        // Wenn es eine rote Treppe ist, drehen wir den Pfeil um 180 Grad um (-1)
-        // Damit die Animation aber nicht auch umkippt, müssen wir animDirection ebenfalls umdrehen.
-        if (!isUpward) {
-            finalRepeatX *= -1; // Pfeil um 180 Grad drehen
-            finalAnimDir *= -1; // Animations-Vorzeichen anpassen, damit die Flussrichtung bleibt
-        }
-
-        tex.repeat.set(finalRepeatX, 2);
-        mesh.userData.animDirection = finalAnimDir;
-
+        const tex = baseTex.clone();
         tex.needsUpdate = true;
+
         mesh.material.map = tex;
+        mesh.material.color.setHex(0xffffff);
+        mesh.material.emissive.setHex(0xffffff);
         mesh.material.emissiveMap = tex;
         mesh.material.emissiveIntensity = 1.0;
-        mesh.material.emissive.setHex(0xffffff);
-        mesh.material.color.setHex(0xffffff);
+        mesh.material.transparent = false;
+
+        const segments = Math.max(1, Math.round(totalLen));
+        tex.repeat.set(6, segments);
+        mesh.userData.animDirection = isForward ? 1 : -1;
 
     } else {
-        // --- 3. TREPPEN (STAIRS - BLEIBT UNVERÄNDERT) ---
         const stepHeight = 0.2;
         const stepsCount = Math.max(2, Math.floor(Math.abs(yDiff) / stepHeight));
+
+        const width = 1.2;
         const vertices = [];
         const indices = [];
-        const width = 1.2;
-
         const addQuad = (v1, v2, v3, v4) => {
             const base = vertices.length / 3;
             vertices.push(v1.x, v1.y, v1.z, v2.x, v2.y, v2.z, v3.x, v3.y, v3.z, v4.x, v4.y, v4.z);
@@ -282,22 +278,28 @@ export function updateStairVisuals(mesh, explosionOffset) {
         for (let i = 0; i < stepsCount; i++) {
             const tA = i / stepsCount;
             const tB = (i + 1) / stepsCount;
+
             const pA = curve.getPoint(tA);
             const pB = curve.getPoint(tB);
             const tan = curve.getTangent(tA);
+
             const up = new THREE.Vector3(0, 1, 0);
             const side = new THREE.Vector3().crossVectors(tan, up).normalize().multiplyScalar(width / 2);
 
             const t1 = new THREE.Vector3().copy(pA).add(side);
             const t2 = new THREE.Vector3().copy(pA).sub(side);
+
             const pB_flat = new THREE.Vector3(pB.x, pA.y, pB.z);
             const t3 = new THREE.Vector3().copy(pB_flat).sub(side);
             const t4 = new THREE.Vector3().copy(pB_flat).add(side);
+
+            const r1 = t4;
+            const r2 = t3;
             const r3 = new THREE.Vector3().copy(pB).sub(side);
             const r4 = new THREE.Vector3().copy(pB).add(side);
 
-            addQuad(t1, t2, t3, t4); 
-            addQuad(t4, t3, r3, r4); 
+            addQuad(t1, t2, t3, t4);
+            addQuad(r1, r2, r3, r4);
         }
 
         const bufferGeo = new THREE.BufferGeometry();
@@ -306,15 +308,13 @@ export function updateStairVisuals(mesh, explosionOffset) {
         bufferGeo.computeVertexNormals();
         mesh.geometry = bufferGeo;
         mesh.material.map = null;
-        mesh.material.emissive.setHex(0x000000);
-        mesh.material.color.setHex(0xffa500);
+        mesh.material.color.setHex(CONFIG.colors.stairs);
     }
 }
 
 export function createStairMesh(groups, points, startLvl, endLvl, tags, osmId) {
     const isEscalator = tags.conveying && tags.conveying !== 'no';
 
-    // We create a dummy mesh first. Geometry will be filled by updateStairVisuals.
     const geo = new THREE.BufferGeometry();
     const mat = new THREE.MeshStandardMaterial({
         color: isEscalator ? 0xffffff : CONFIG.colors.stairs,
@@ -323,18 +323,19 @@ export function createStairMesh(groups, points, startLvl, endLvl, tags, osmId) {
 
     const mesh = new THREE.Mesh(geo, mat);
 
-    // userData stores mostly raw data
     mesh.userData = {
         isStair: true,
         isConveying: isEscalator,
-        conveying: tags.conveying, // Store exact value provided by user
-        isEscalator: isEscalator, // alias
-        points: points, // Whole path
+        conveying: tags.conveying,
+        isEscalator: isEscalator,
+        points: points,
         startLvl,
         endLvl,
         osmId
     };
 
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     groups.stairs.add(mesh);
 }
 
@@ -348,6 +349,7 @@ export function createEntranceMesh(groups, pos, level, tags, osmId) {
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData = { level: level, osmId: osmId };
+    mesh.castShadow = true;
     groups.entrances.add(mesh);
 }
 
@@ -357,7 +359,6 @@ export function createLine(groups, p1, p2, color, isElevator) {
     const mat = new THREE.LineBasicMaterial({ color: color, opacity: 0.3, transparent: true });
     const line = new THREE.Line(geo, mat);
 
-    // level1 and level2 are needed for 'explosion' effect
     line.userData = { level1: p1.level, level2: p2.level, isElevator: isElevator };
     groups.graph.add(line);
 }

@@ -1,16 +1,15 @@
-
 import * as THREE from 'three';
 import { createMeshFromShape, createPolygonMesh, createPlatformLine, createRailwayLine, createStairMesh, createEntranceMesh, createLine } from './geometry.js';
 import { addGraphEdge, graph } from './graph.js';
 
 export let osmCache = {};
 export let platformRegistry = {};
-export let nodeObjects = []; // Stores objects for raycasting/interaction
+export let nodeObjects = [];
 
 export function clearData() {
     osmCache = {};
     platformRegistry = {};
-    nodeObjects.length = 0; // Clear array
+    nodeObjects.length = 0;
 }
 
 export function processData(data, centerLat, centerLon, projectFn, groups, onReady) {
@@ -29,22 +28,32 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
     const wayMap = {};
     data.elements.filter(el => el.type === 'way').forEach(w => wayMap[w.id] = w);
 
-    // 2. Process Relations (Multipolygons)
+    // 2. Process Relations (Multipolygons & Buildings)
     data.elements.filter(el => el.type === 'relation').forEach(rel => {
         osmCache[rel.id] = rel.tags || {};
         if (rel.tags.type === 'multipolygon' || rel.tags.building || rel.tags.public_transport === 'platform' || rel.tags.railway === 'platform' || rel.tags.indoor === 'corridor' || rel.tags.indoor === 'level') {
             const shapes = assembleMultipolygon(rel, wayMap, nodes);
             if (shapes && shapes.length > 0) {
-                const levels = parseLevels(rel.tags);
+
+                // ARCHITEKTUR-FIX: Trennung von Hülle und Innenraum
+                const isBuilding = (rel.tags.building && rel.tags.building !== 'no') || rel.tags['building:part'];
+                const isRoom = rel.tags.indoor === 'room' || rel.tags.indoor === 'corridor' || rel.tags.indoor === 'level';
+
+                let levelsToRender = parseLevels(rel.tags);
+
+                // Gebäudehüllen werden als EIN massiver Block am niedrigsten Level gerendert
+                if (isBuilding && !isRoom) {
+                    let minLvl = parseFloat(rel.tags['building:min_level']) || 0;
+                    levelsToRender = [minLvl];
+                }
 
                 shapes.forEach(shape => {
-                    levels.forEach(level => {
+                    levelsToRender.forEach(level => {
                         let tags = { ...rel.tags };
                         if (tags.public_transport === 'platform' || tags.railway === 'platform') tags.type = 'platform';
                         createMeshFromShape(groups, shape, level, tags, rel.id);
 
                         if (tags.type === 'platform') {
-                            // Estimate center for track finder
                             const points = shape.extractPoints().shape.map(p => ({ x: p.x, z: p.y }));
                             registerPlatform(rel.id, tags, points, level);
                         }
@@ -63,13 +72,12 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
         const pts = way.nodes.map(nid => nodes[nid]).filter(n => n);
         if (pts.length < 2) return;
 
-        // Steps (Special case: they span levels, already robustly parsed)
+        // Steps
         if (tags.highway === 'steps') {
             processSteps(groups, pts, tags, way.id);
             return;
         }
 
-        // For other elements, we can utilize multi-level support
         const levels = parseLevels(tags);
 
         // Graph Edges
@@ -84,13 +92,9 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
 
         // Railways / Platforms
         if (tags.railway || tags.public_transport === 'platform') {
-            // Note: Platforms/Railways often have specific level logic, but if explicitly tagged, use levels.
-            // If just "layer", parseLevels handles fallback? No, parseLevels currently does level/building:levels.
-            // Let's defer to parseLevels unless "layer" is the only thing.
             if (!tags.level && !tags['building:levels'] && tags.layer) {
-                // Fallback to layer if no level info
                 const l = parseFloat(tags.layer);
-                if (!isNaN(l)) levels.length = 0; levels.push(l); // Overwrite
+                if (!isNaN(l)) { levels.length = 0; levels.push(l); }
             }
 
             levels.forEach(lvl => {
@@ -101,42 +105,50 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
                     else createPlatformLine(groups, pts, lvl, tags, way.id);
                 }
                 else if (tags.railway && tags.railway !== 'platform') {
-                    // Only render track if explicit level or logic allows. 
-                    // Usually tracks without level are on ground(0) or layer.
                     createRailwayLine(groups, pts, lvl, tags, way.id);
                     if (tags['railway:track_ref'] || tags.ref) registerPlatform(way.id, tags, pts, lvl);
                 }
             });
         }
 
-        // Rooms / Walls / Corridors / Levels
-        const isRoom = tags.indoor === 'room' || tags.building || tags.wall || tags.indoor === 'corridor' || tags.indoor === 'level';
-        if (isRoom && tags.railway !== 'platform' && tags.public_transport !== 'platform' && pts.length > 2) {
-            levels.forEach(lvl => {
+        // Rooms / Walls / Buildings (Flächen)
+        const isBuilding = (tags.building && tags.building !== 'no') || tags['building:part'] || tags.wall;
+        const isRoom = tags.indoor === 'room' || tags.indoor === 'corridor' || tags.indoor === 'level';
+        const isArea = isBuilding || isRoom;
+
+        if (isArea && tags.railway !== 'platform' && tags.public_transport !== 'platform' && pts.length > 2) {
+            let levelsToRender = parseLevels(tags);
+
+            // Auch hier: Gebäudehülle zu einem Block verschmelzen
+            if (isBuilding && !isRoom) {
+                let minLvl = parseFloat(tags['building:min_level']) || 0;
+                levelsToRender = [minLvl];
+            }
+
+            levelsToRender.forEach(lvl => {
                 createPolygonMesh(groups, pts, lvl, tags, way.id);
             });
         }
     });
 
-    // 4. Elevators (Nodes)
+    // 4. Elevators
     data.elements.filter(el => el.type === 'node' && el.tags && el.tags.highway === 'elevator').forEach(node => {
         const levelsStr = node.tags.level || "";
-        const levels = levelsStr.split(/[;,]/).map(l => parseFloat(l)).filter(l => !isNaN(l));
-        levels.sort((a, b) => a - b);
+        const lvls = levelsStr.split(/[;,]/).map(l => parseFloat(l)).filter(l => !isNaN(l));
+        lvls.sort((a, b) => a - b);
         const n = nodes[node.id];
-        if (n && levels.length > 1) {
-            for (let i = 0; i < levels.length - 1; i++) {
-                const idA = `${node.id}_${levels[i]}`;
-                const idB = `${node.id}_${levels[i + 1]}`;
+        if (n && lvls.length > 1) {
+            for (let i = 0; i < lvls.length - 1; i++) {
+                const idA = `${node.id}_${lvls[i]}`;
+                const idB = `${node.id}_${lvls[i + 1]}`;
 
-                // Add to graph with weight 10 (elevator cost)
-                if (!graph.nodes[idA]) graph.nodes[idA] = { id: idA, x: n.x, z: n.z, level: levels[i], osmId: node.id, neighbors: [] };
-                if (!graph.nodes[idB]) graph.nodes[idB] = { id: idB, x: n.x, z: n.z, level: levels[i + 1], osmId: node.id, neighbors: [] };
+                if (!graph.nodes[idA]) graph.nodes[idA] = { id: idA, x: n.x, z: n.z, level: lvls[i], osmId: node.id, neighbors: [] };
+                if (!graph.nodes[idB]) graph.nodes[idB] = { id: idB, x: n.x, z: n.z, level: lvls[i + 1], osmId: node.id, neighbors: [] };
 
                 graph.nodes[idA].neighbors.push({ id: idB, weight: 10 });
                 graph.nodes[idB].neighbors.push({ id: idA, weight: 10 });
 
-                createLine(groups, { x: n.x, z: n.z, level: levels[i] }, { x: n.x, z: n.z, level: levels[i + 1] }, 0xffff00, true);
+                createLine(groups, { x: n.x, z: n.z, level: lvls[i] }, { x: n.x, z: n.z, level: lvls[i + 1] }, 0xffff00, true);
             }
         }
     });
@@ -149,12 +161,9 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
         localNodeObjects.push({ x: n.x, z: n.z, level: level, id: `${node.id}_${level}`, osmId: node.id, isEntrance: true });
     });
 
-    // Copy localNodeObjects to exported
     nodeObjects.push(...localNodeObjects);
 
-    // Collect all unique levels
     const uniqueLevels = new Set();
-    // From groups (meshes have userData.level)
     Object.values(groups).forEach(g => {
         g.children.forEach(c => {
             if (c.userData && c.userData.level !== undefined) {
@@ -169,65 +178,29 @@ export function processData(data, centerLat, centerLon, projectFn, groups, onRea
 function processSteps(groups, pts, tags, osmId) {
     let rangeLevels = [];
     if (tags.level) {
-        // Robust parsing for "0-1", "-1-0", "-2--1", "0;1", "1.5"
         const matches = tags.level.match(/-?\d+(\.\d+)?/g);
-        if (matches) {
-            rangeLevels = matches.map(parseFloat).sort((a, b) => a - b);
-        }
+        if (matches) rangeLevels = matches.map(parseFloat).sort((a, b) => a - b);
     }
     if (rangeLevels.length > 1) {
-        const minLvl = rangeLevels[0]; 
-        const maxLvl = rangeLevels[rangeLevels.length - 1];
+        const minLvl = rangeLevels[0]; const maxLvl = rangeLevels[rangeLevels.length - 1];
         let startLvl = minLvl, endLvl = maxLvl;
-        
-        // incline bestimmt welches Ende oben/unten ist
-        if (tags.incline === 'down') { 
-            startLvl = maxLvl; 
-            endLvl = minLvl; 
-        }
-        
-        const startNode = pts[0]; 
-        const endNode = pts[pts.length - 1];
-        const id1 = `${startNode.id}_${startLvl}`;
-        const id2 = `${endNode.id}_${endLvl}`;
-        
-        if (!graph.nodes[id1]) graph.nodes[id1] = { 
-            id: id1, x: startNode.x, z: startNode.z, 
-            level: startLvl, osmId: startNode.id, neighbors: [] 
-        };
-        if (!graph.nodes[id2]) graph.nodes[id2] = { 
-            id: id2, x: endNode.x, z: endNode.z, 
-            level: endLvl, osmId: endNode.id, neighbors: [] 
-        };
-        
-        // Prüfe ob es eine Rolltreppe ist
-        const isEscalator = tags.conveying === 'forward' || tags.conveying === 'backward';
-        const isOneway = tags.oneway === 'yes';
-        
-        if (isEscalator) {
-            // Rolltreppen: 30% schneller als ein normaler Weg
-            const dist = Math.sqrt((startNode.x - endNode.x) ** 2 + (startNode.z - endNode.z) ** 2) * 0.7;
-            // Rolltreppe: nur in Bewegungsrichtung nutzbar
-            if (tags.conveying === 'forward') {
-                // Rolltreppe fährt vorwärts: nur von Start zu Ende
-                graph.nodes[id1].neighbors.push({ id: id2, weight: dist });
-            } else if (tags.conveying === 'backward') {
-                // Rolltreppe fährt rückwärts: nur von Ende zu Start
-                graph.nodes[id2].neighbors.push({ id: id1, weight: dist });
-            }
-        } else {
-            // Normale Treppen: Distanz 2x langsamer als ein normaler Weg
-            const dist = Math.sqrt((startNode.x - endNode.x) ** 2 + (startNode.z - endNode.z) ** 2) * 2.0;
-            graph.nodes[id1].neighbors.push({ id: id2, weight: dist });
-            if (!isOneway) {
-                graph.nodes[id2].neighbors.push({ id: id1, weight: dist });
-            }
-        }
-        
+        if (tags.incline === 'down') { startLvl = maxLvl; endLvl = minLvl; }
+
+        const startNode = pts[0]; const endNode = pts[pts.length - 1];
+        const id1 = `${startNode.id}_${startLvl}`; const id2 = `${endNode.id}_${endLvl}`;
+
+        if (!graph.nodes[id1]) graph.nodes[id1] = { id: id1, x: startNode.x, z: startNode.z, level: startLvl, osmId: startNode.id, neighbors: [] };
+        if (!graph.nodes[id2]) graph.nodes[id2] = { id: id2, x: endNode.x, z: endNode.z, level: endLvl, osmId: endNode.id, neighbors: [] };
+
+        const dist = Math.sqrt((startNode.x - endNode.x) ** 2 + (startNode.z - endNode.z) ** 2) * 2.0;
+        const isOneway = tags.oneway === 'yes' || tags.conveying === 'yes';
+
+        graph.nodes[id1].neighbors.push({ id: id2, weight: dist });
+        if (!isOneway) graph.nodes[id2].neighbors.push({ id: id1, weight: dist });
+
         createStairMesh(groups, pts, startLvl, endLvl, tags, osmId);
     }
 }
-
 
 function registerPlatform(osmId, tags, points, level) {
     const trackRef = tags['railway:track_ref'];
@@ -252,7 +225,6 @@ function registerPlatform(osmId, tags, points, level) {
     }
 }
 
-// Geometry Helpers (Multipolygon)
 function assembleMultipolygon(rel, wayMap, nodes) {
     const outers = []; const inners = [];
     rel.members.forEach(m => {
@@ -298,14 +270,9 @@ function stitchSegments(segments) {
 
 function parseLevels(tags) {
     const levels = new Set();
-
     if (tags.level) {
         const parts = tags.level.split(';');
         parts.forEach(part => {
-            // Check for range (e.g. 0-3, -1-1)
-            // Regex: matches "Number - Number". 
-            // Supports negative numbers. 
-            // Groups: 1 = Start, 2 = End
             const rangeMatch = part.match(/^(-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)$/);
             if (rangeMatch) {
                 const start = parseFloat(rangeMatch[1]);
@@ -313,9 +280,7 @@ function parseLevels(tags) {
                 if (!isNaN(start) && !isNaN(end)) {
                     const min = Math.min(start, end);
                     const max = Math.max(start, end);
-                    for (let i = Math.floor(min); i <= Math.floor(max); i++) {
-                        levels.add(i);
-                    }
+                    for (let i = Math.floor(min); i <= Math.floor(max); i++) levels.add(i);
                 }
             } else {
                 const num = parseFloat(part);
@@ -325,17 +290,10 @@ function parseLevels(tags) {
     } else if (tags['building:levels']) {
         const count = parseFloat(tags['building:levels']);
         if (!isNaN(count)) {
-            let min = 0;
-            if (tags['building:min_level']) {
-                min = parseFloat(tags['building:min_level']) || 0;
-            }
-            // Generate levels: min, min+1, ... min+count-1
-            for (let i = 0; i < count; i++) {
-                levels.add(min + i);
-            }
+            let min = parseFloat(tags['building:min_level']) || 0;
+            for (let i = 0; i < count; i++) levels.add(min + i);
         }
     }
-
     if (levels.size === 0) levels.add(0);
     return Array.from(levels).sort((a, b) => a - b);
 }

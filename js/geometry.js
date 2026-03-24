@@ -32,33 +32,68 @@ function createStripedTexture() {
 export function createMeshFromShape(groups, shape, level, tags, osmId) {
     let height = CONFIG.roomHeight;
     let color = CONFIG.colors.room;
-    let opacity = 0.8; // SOLID now, was 0.3
-    let depthWrite = true; // Enable depth write for solid feel
+    let opacity = 0.8;
+    let depthWrite = true;
     let borderColor = CONFIG.colors.roomBorder;
+    let isPlatform = false;
 
     if (tags.type === 'platform') {
         color = CONFIG.colors.platform;
-        opacity = 1.0; // Fully solid
-        height = 0.6; // Slightly higher
+        opacity = 1.0;
+        height = 0.6;
         borderColor = CONFIG.colors.platformBorder;
-    } else if (tags.building) {
-        color = 0x0f172a; // Match bg roughly
-        opacity = 0.1; // Keep buildings ghostly
+        isPlatform = true;
+    } else if (tags.building || tags.indoor === 'room' || tags.indoor === 'corridor' || tags.indoor === 'level') {
+        color = 0x334155; // Lighter than background
+        opacity = 0.8; // Make walls transparent
         depthWrite = false;
     }
 
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: -height, bevelEnabled: false });
     geo.rotateX(Math.PI / 2); // Rotate to lay flat
 
-    const mat = new THREE.MeshStandardMaterial({
-        color: color,
-        transparent: opacity < 1.0,
-        opacity: opacity,
-        side: THREE.DoubleSide, // Still double side for open walls
-        depthWrite: depthWrite,
-        roughness: 0.7,
-        metalness: 0.1
-    });
+    let mat;
+    if (isPlatform) {
+        mat = new THREE.MeshStandardMaterial({
+            color: color,
+            transparent: false,
+            opacity: 1.0,
+            side: THREE.DoubleSide,
+            depthWrite: true,
+            roughness: 0.7,
+            metalness: 0.1
+        });
+    } else {
+        // Multi-material for Buildings/Rooms
+        // Index 0: Side walls
+        // Index 1: Top/Bottom caps (Floors/Ceilings)
+
+        const matWalls = new THREE.MeshStandardMaterial({
+            color: color,
+            transparent: true,
+            opacity: opacity * 0.3, // Walls are more transparent than floors
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            roughness: 0.1,
+            metalness: 0.1
+        });
+
+        const matCaps = new THREE.MeshStandardMaterial({
+            color: color, // Same color
+            transparent: true,
+            opacity: opacity, // Use the opacity set above (0.8 from user edit)
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            roughness: 0.8,
+            metalness: 0.0
+        });
+
+        mat = [matCaps, matWalls]; // ExtrudeGeometry uses [Cap, Side] order? No, usually [Side, Cap] or [Front, Back, Side...]
+        // Actually ExtrudeGeometry groups: 0 = Side, 1 = Top/Bottom Cap.
+        // Wait, three.js docs say: "When using an array of materials... The first material is used for the faces of the extrusion, the second material for the front and back faces (caps)."
+        // So: [Side, Cap]
+        mat = [matWalls, matCaps];
+    }
 
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData = { level: level, isRoom: true, osmId: osmId };
@@ -142,20 +177,20 @@ function createArrowTexture(arrowColorHex, isFlipped = false) {
     const fX = (x) => isFlipped ? 64 - x : x;
 
     ctx.beginPath();
-    ctx.moveTo(fX(5), 22);  
-    ctx.lineTo(fX(35), 22); 
-    ctx.lineTo(fX(35), 8);  
+    ctx.moveTo(fX(5), 22);
+    ctx.lineTo(fX(35), 22);
+    ctx.lineTo(fX(35), 8);
     ctx.lineTo(fX(58), 32); // Spitze
-    ctx.lineTo(fX(35), 56); 
-    ctx.lineTo(fX(35), 42); 
-    ctx.lineTo(fX(5), 42);  
+    ctx.lineTo(fX(35), 56);
+    ctx.lineTo(fX(35), 42);
+    ctx.lineTo(fX(5), 42);
     ctx.closePath();
     ctx.fill();
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    
+
     // Scharfe Darstellung
     tex.minFilter = THREE.NearestFilter;
     tex.magFilter = THREE.NearestFilter;
@@ -164,8 +199,8 @@ function createArrowTexture(arrowColorHex, isFlipped = false) {
 }
 
 // texGreen zeigt nach vorne (oben), texRed zeigt nach hinten (unten)
-const texGreen = createArrowTexture('#0ec241', false); 
-const texRed = createArrowTexture('#bb2e45', true);
+const texGreen = createArrowTexture('#22c55e', false);
+const texRed = createArrowTexture('#ef4444', true);
 
 // --- UPDATE VISUALS ---
 

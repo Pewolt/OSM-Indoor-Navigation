@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OSM Indoor Routing Pro v4.0 (Modular)</title>
     <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/controls.css">
     <script type="importmap">
         {
             "imports": {
@@ -18,8 +19,12 @@
 
 <body>
 
+    <!-- Mobile Menu Toggle -->
+    <button id="btn-menu-toggle" class="mobile-toggle">☰</button>
+
     <!-- Controls Panel -->
     <div id="ui-controls" class="panel">
+        <button id="btn-menu-close" class="close-btn mobile-only">&times;</button>
         <div>
             <h1>Indoor Routing</h1>
             <div style="font-size: 0.75rem; color: #64748b;">Version 4.0 (Refactored)</div>
@@ -65,6 +70,14 @@
         </div>
 
         <div style="border-top: 1px solid #334155; padding-top: 12px; margin-top: 4px;">
+            <label>Etagenauswahl (Level)</label>
+            <select id="in-level-select"
+                style="width: 100%; padding: 4px; background: #1e293b; color: white; border: 1px solid #475569; border-radius: 4px;">
+                <option value="all">Alle Etagen anzeigen</option>
+            </select>
+        </div>
+
+        <div style="border-top: 1px solid #334155; padding-top: 12px; margin-top: 4px;">
             <label>Stockwerk-Explosion</label>
             <input type="range" id="explode-slider" min="0" max="20" step="0.5" value="0">
         </div>
@@ -106,10 +119,29 @@
         <button id="btn-replay-next" class="replay-btn">→</button>
     </div>
 
+    <div id="camera-controls">
+        <div class="controls-dpad">
+            <div class="control-row">
+                <button id="btn-cam-forward">▲</button>
+            </div>
+            <div class="control-row">
+                <button id="btn-cam-left">◀</button>
+                <button id="btn-cam-back">▼</button>
+                <button id="btn-cam-right">▶</button>
+            </div>
+        </div>
+        <div class="controls-zoom">
+            <button id="btn-cam-zoom-in" title="Zoom In">＋</button>
+            <button id="btn-cam-zoom-out" title="Zoom Out">－</button>
+            <div style="height: 10px;"></div>
+            <button id="btn-cam-pan-toggle" title="Pan Modus (Verschieben)">✋</button>
+        </div>
+    </div>
+
     <div id="instruction">Linksklick: Start wählen • Suche: Ziel wählen</div>
     <div id="canvas-container"></div>
 
-    <script type="module" src="js/main.js"></script>
+    <script type="module" src="js/main.js?v=2"></script>
 </body>
 
 </html>

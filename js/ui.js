@@ -28,6 +28,7 @@ export const ELEMENTS = {
     btnClearRoute: document.getElementById('btn-clear-route'),
     levelSelect: document.getElementById('in-level-select'),
     btnClearRoute: document.getElementById('btn-clear-route')
+    btnCamPanToggle: document.getElementById('btn-cam-pan-toggle')
 };
 
 export function setStatus(text, color) {
@@ -100,5 +101,42 @@ export function updateLockStatus(isLocked) {
     if (ELEMENTS.btnLockStart) {
         ELEMENTS.btnLockStart.innerText = isLocked ? "Start fixiert 🔒" : "Start fixieren 🔓";
         ELEMENTS.btnLockStart.style.background = isLocked ? "#22c55e" : "#3b82f6"; // Green if locked, Blue if unlocked
+    }
+}
+
+export function populateLevelSelect(levels) {
+    const select = ELEMENTS.levelSelect;
+    if (!select) return;
+
+    // Keep the first "All" option
+    select.innerHTML = '<option value="all">Alle Etagen anzeigen</option>';
+
+    // Sort levels numerically
+    levels.sort((a, b) => a - b);
+
+    levels.forEach(lvl => {
+        const opt = document.createElement('option');
+        opt.value = lvl;
+        opt.innerText = `Level ${lvl}`;
+        select.appendChild(opt);
+    });
+}
+
+
+export function initMobileMenu() {
+    const btnToggle = document.getElementById('btn-menu-toggle');
+    const btnClose = document.getElementById('btn-menu-close');
+    const controls = document.getElementById('ui-controls');
+
+    if (btnToggle && controls) {
+        btnToggle.addEventListener('click', () => {
+            controls.classList.add('open');
+        });
+    }
+
+    if (btnClose && controls) {
+        btnClose.addEventListener('click', () => {
+            controls.classList.remove('open');
+        });
     }
 }

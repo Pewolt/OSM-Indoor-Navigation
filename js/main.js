@@ -6,11 +6,14 @@ import { loadData, onSearchInput } from './api.js';
 import { processData, clearData, nodeObjects } from './data.js';
 import { getY } from './geometry.js';
 import { getGraphNodesData, clearGraph } from './graph.js';
-import { initInteraction, setExplosionOffset, findTrackAndSetTarget, onSliderChange, updateMovement, stepReplay, toggleStartLock, clearRoute } from './interaction.js';
-import { ELEMENTS, setStatus } from './ui.js';
+import { initInteraction, setExplosionOffset, findTrackAndSetTarget, onSliderChange, updateMovement, stepReplay, toggleStartLock, clearRoute } from './interaction.js?v=3';
+
+import { ELEMENTS, setStatus, initMobileMenu } from './ui.js';
 
 // --- GLOBALS ---
 let scene, camera, renderer, controls;
+
+console.log("[DEBUG] main.js loaded");
 
 // Groups
 const groups = {
@@ -75,6 +78,13 @@ function init() {
     if (ELEMENTS.btnLockStart) ELEMENTS.btnLockStart.addEventListener('click', toggleStartLock);
     if (ELEMENTS.btnClearRoute) ELEMENTS.btnClearRoute.addEventListener('click', clearRoute);
 
+    // Level Select Listener
+    if (ELEMENTS.levelSelect) {
+        ELEMENTS.levelSelect.addEventListener('change', (e) => {
+            updateLevelVisibility(e.target.value);
+        });
+    }
+
 
     // Search close on outside click
     document.addEventListener('click', (e) => {
@@ -82,6 +92,8 @@ function init() {
             ELEMENTS.results.style.display = 'none';
         }
     });
+
+    initMobileMenu();
 
     animate();
 }
@@ -138,9 +150,44 @@ function handleDataLoaded(data, centerLat, centerLon) {
         return { x, z };
     };
 
-    processData(data, centerLat, centerLon, projectFn, groups, () => {
+    processData(data, centerLat, centerLon, projectFn, groups, (uniqueLevels) => {
         renderGraphNodes();
         onSliderChange(); // Initial visual update
+
+        // Populate Level Select
+        if (ELEMENTS.levelSelect && uniqueLevels) {
+            import('./ui.js').then(module => {
+                module.populateLevelSelect(uniqueLevels);
+                ELEMENTS.levelSelect.value = 'all'; // Default
+            });
+        }
+    });
+}
+
+function updateLevelVisibility(targetLevel) {
+    const isAll = targetLevel === 'all';
+    const lvl = parseFloat(targetLevel);
+
+    Object.values(groups).forEach(g => {
+        g.children.forEach(obj => {
+            // Check userData.level
+            if (obj.userData && obj.userData.level !== undefined) {
+                const myLevel = obj.userData.level;
+                // Complex objects might have ranges (e.g. stairs), but usually we assign one main level or handle separately.
+                // For now strict match.
+
+                let visible = isAll || (myLevel === lvl);
+
+                // Special handling for connections/stairs that span levels?
+                // Simplest approach: Show if either start or end level matches?
+                // Currently stairs have startLvl/endLvl.
+                if (obj.userData.isStair) {
+                    visible = isAll || (obj.userData.startLvl === lvl || obj.userData.endLvl === lvl);
+                }
+
+                obj.visible = visible;
+            }
+        });
     });
 }
 

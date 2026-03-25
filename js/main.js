@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-// --- NEU: POST-PROCESSING IMPORTS FÜR PAKET 4 ---
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
@@ -12,16 +11,16 @@ import { loadData, onSearchInput } from './api.js';
 import { processData, clearData, nodeObjects } from './data.js';
 import { getY } from './geometry.js';
 import { getGraphNodesData, clearGraph } from './graph.js';
-import { initInteraction, setExplosionOffset, findTrackAndSetTarget, onSliderChange, updateMovement, stepReplay, toggleStartLock, clearRoute } from './interaction.js?v=3';
+import { initInteraction, setExplosionOffset, findTrackAndSetTarget, onSliderChange, updateMovement, stepReplay, toggleStartLock, clearRoute, updateFPVCamera, togglePlayPause, exitFPVMode } from './interaction.js?v=4';
 
 import { ELEMENTS, setStatus, initMobileMenu } from './ui.js';
 
 // --- GLOBALS ---
 let scene, camera, renderer, controls, composer;
+let lastTime = performance.now(); // FÜR PRÄZISE DELTA TIME BERECHNUNG WICHTIG!
 
 console.log("[DEBUG] main.js loaded");
 
-// Groups
 const groups = {
     buildings: new THREE.Group(),
     rooms: new THREE.Group(),
@@ -35,7 +34,6 @@ const groups = {
 };
 
 function init() {
-    // Scene
     scene = new THREE.Scene();
     scene.background = new THREE.Color(CONFIG.colors.background);
     scene.fog = new THREE.FogExp2(CONFIG.colors.fog, 0.002);
@@ -43,19 +41,17 @@ function init() {
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
     camera.position.set(100, 150, 100);
 
-    // Renderer (Schatten aktiviert)
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Weiche Schatten
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
 
-    // --- BELEUCHTUNG ---
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
     hemiLight.position.set(0, 200, 0);
     scene.add(hemiLight);
@@ -64,7 +60,6 @@ function init() {
     sun.position.set(200, 400, 100);
     sun.castShadow = true;
 
-    // Schatten-Kamera groß genug machen, um einen Bahnhof abzudecken
     const d = 400;
     sun.shadow.camera.left = -d;
     sun.shadow.camera.right = d;
@@ -72,37 +67,32 @@ function init() {
     sun.shadow.camera.bottom = -d;
     sun.shadow.camera.near = 0.5;
     sun.shadow.camera.far = 1500;
-    sun.shadow.bias = -0.0005; // Verhindert "Shadow Acne" (Streifen auf Flächen)
-    sun.shadow.mapSize.width = 2048; // Hohe Auflösung
+    sun.shadow.bias = -0.0005; 
+    sun.shadow.mapSize.width = 2048; 
     sun.shadow.mapSize.height = 2048;
     scene.add(sun);
 
-    // Grid (sollte Schatten empfangen)
     const grid = new THREE.GridHelper(500, 50, CONFIG.colors.grid1, CONFIG.colors.grid2);
     grid.position.y = -0.1;
     scene.add(grid);
 
-    // Unsichtbare Bodenplatte, um Schattenwurf auf dem Boden aufzufangen
     const groundGeo = new THREE.PlaneGeometry(2000, 2000);
-    const groundMat = new THREE.ShadowMaterial({ opacity: 0.5 }); // Nur Schatten sichtbar
+    const groundMat = new THREE.ShadowMaterial({ opacity: 0.5 }); 
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.15;
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // Add Groups to Scene
     Object.values(groups).forEach(g => scene.add(g));
 
-    // --- POST-PROCESSING (SSAO) ---
     composer = new EffectComposer(renderer);
 
     const renderPass = new RenderPass(scene, camera);
     composer.addPass(renderPass);
 
-    // SSAO Pass für Architektur-Tiefe
     const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
-    ssaoPass.kernelRadius = 12; // Radius der Kontaktschatten
+    ssaoPass.kernelRadius = 12; 
     ssaoPass.minDistance = 0.002;
     ssaoPass.maxDistance = 0.1;
     composer.addPass(ssaoPass);
@@ -111,7 +101,6 @@ function init() {
     composer.addPass(outputPass);
 
 
-    // Initialize Interaction
     initInteraction(scene, camera, renderer, controls, groups);
 
     // --- EVENT BINDING ---
@@ -154,6 +143,11 @@ function init() {
 
     if (ELEMENTS.btnReplayNext) ELEMENTS.btnReplayNext.addEventListener('click', () => stepReplay(1));
     if (ELEMENTS.btnReplayPrev) ELEMENTS.btnReplayPrev.addEventListener('click', () => stepReplay(-1));
+    
+    // --- NEUE FPV EVENTS ---
+    if (ELEMENTS.btnReplayPlayPause) ELEMENTS.btnReplayPlayPause.addEventListener('click', togglePlayPause);
+    if (ELEMENTS.btnExitFPV) ELEMENTS.btnExitFPV.addEventListener('click', exitFPVMode);
+
     if (ELEMENTS.btnLockStart) ELEMENTS.btnLockStart.addEventListener('click', toggleStartLock);
     if (ELEMENTS.btnClearRoute) ELEMENTS.btnClearRoute.addEventListener('click', clearRoute);
 
@@ -177,7 +171,7 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    composer.setSize(window.innerWidth, window.innerHeight); // WICHTIG FÜR POST-PROCESSING
+    composer.setSize(window.innerWidth, window.innerHeight); 
 }
 
 function onBtnLoadClick() {
@@ -289,6 +283,11 @@ function renderGraphNodes() {
 function animate() {
     requestAnimationFrame(animate);
 
+    // Delta Time Berechnung für saubere Bewegungen
+    const timeNow = performance.now();
+    const deltaTime = (timeNow - lastTime) / 1000;
+    lastTime = timeNow;
+
     if (groups.stairs) {
         groups.stairs.children.forEach(mesh => {
             if (mesh.userData.isEscalator && mesh.material && mesh.material.map) {
@@ -321,9 +320,11 @@ function animate() {
     }
 
     updateMovement();
+    
+    // --- FPV UPDATE LOOP ---
+    updateFPVCamera(deltaTime);
+    
     controls.update();
-
-    // ANSTATT renderer.render(scene, camera); NUTZEN WIR JETZT DEN COMPOSER!
     composer.render();
 }
 

@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { getY, updateStairVisuals } from './geometry.js';
@@ -14,20 +13,176 @@ let groupsRef;
 let startNodeId = null;
 let endNodeId = null;
 let explosionOffset = 0;
-let isDestinationLocked = false; // "Ziel fixiert" (from Find Track)
-let isStartLocked = false;       // "Start fixiert" (Manual Lock)
+let isDestinationLocked = false; 
+let isStartLocked = false;       
 
-// Replay State
+// --- Replay & FPV State ---
 let replayIndex = -1;
 let currentReplayPath = [];
 let currentDists = {};
-// Store lines per step: index -> array of THREE.Line
 let replayStepLines = {};
+
+export let isFPVMode = false;
+export let isAutoPlaying = false;
+let fpvCurve = null;
+let fpvProgress = 0.0;
+let fpvTotalLength = 0;
+let nodeUValues = []; 
+let preFpvState = { position: new THREE.Vector3(), target: new THREE.Vector3(), explosion: 0 };
+
+// HILFSFUNKTION: Filtert Punkte heraus, die zu nah aneinander liegen (Verhindert Abstürze bei Kurvenberechnung)
+function getUniquePoints(pointsArray) {
+    if (!pointsArray || pointsArray.length === 0) return [];
+    const unique = [pointsArray[0]];
+    for (let i = 1; i < pointsArray.length; i++) {
+        if (pointsArray[i].distanceTo(unique[unique.length - 1]) > 0.05) { // 5cm Toleranz
+            unique.push(pointsArray[i]);
+        }
+    }
+    return unique;
+}
+
+export function togglePlayPause() {
+    if (!currentReplayPath || currentReplayPath.length < 2) return;
+
+    if (!isFPVMode) {
+        enterFPVMode();
+    }
+
+    isAutoPlaying = !isAutoPlaying;
+    import('./ui.js').then(ui => ui.updatePlayPauseIcon(isAutoPlaying));
+    
+    if(isAutoPlaying) {
+        setStatus("Automatische FPV-Route gestartet.", CONFIG.colors.statusOk);
+    } else {
+        setStatus("FPV-Route pausiert.", CONFIG.colors.statusWait);
+    }
+}
+
+export function enterFPVMode() {
+    if (isFPVMode) return;
+    isFPVMode = true;
+
+    drawRoute(currentReplayPath, true);
+
+    preFpvState.position.copy(camera.position);
+    preFpvState.target.copy(controls.target);
+    preFpvState.explosion = explosionOffset;
+
+    setExplosionOffset(0);
+
+    import('./ui.js').then(ui => {
+        if (ui.ELEMENTS.slider) {
+            ui.ELEMENTS.slider.disabled = true;
+            ui.ELEMENTS.slider.value = 0;
+        }
+        ui.toggleFPVUI(true);
+    });
+
+    const points = currentReplayPath.map(id => {
+        const n = graph.nodes[id];
+        return new THREE.Vector3(n.x, n.level * CONFIG.floorHeight, n.z);
+    });
+    
+    // Vermeide 0-Längen Vektoren, die das Skript zum Absturz bringen
+    const uniquePoints = getUniquePoints(points);
+    
+    fpvCurve = new THREE.CurvePath();
+    if (uniquePoints.length > 1) {
+        for (let i = 0; i < uniquePoints.length - 1; i++) {
+            fpvCurve.add(new THREE.LineCurve3(uniquePoints[i], uniquePoints[i + 1]));
+        }
+    }
+    
+    fpvTotalLength = fpvCurve.getLength(); 
+
+    nodeUValues = [0];
+    let accDist = 0;
+    for (let i = 0; i < uniquePoints.length - 1; i++) {
+        accDist += uniquePoints[i].distanceTo(uniquePoints[i + 1]);
+        nodeUValues.push(accDist / fpvTotalLength);
+    }
+
+    controls.enabled = false; 
+
+    if (replayIndex >= 0 && replayIndex < nodeUValues.length) {
+        fpvProgress = nodeUValues[replayIndex];
+    } else {
+        fpvProgress = 0.0;
+        replayIndex = 0;
+    }
+}
+
+export function exitFPVMode() {
+    if (!isFPVMode) return;
+    isFPVMode = false;
+    isAutoPlaying = false;
+    controls.enabled = true; 
+
+    setExplosionOffset(preFpvState.explosion);
+    camera.position.copy(preFpvState.position);
+    controls.target.copy(preFpvState.target);
+
+    import('./ui.js').then(ui => {
+        if (ui.ELEMENTS.slider) {
+            ui.ELEMENTS.slider.disabled = false;
+            ui.ELEMENTS.slider.value = preFpvState.explosion;
+        }
+        ui.updatePlayPauseIcon(false);
+        ui.toggleFPVUI(false);
+    });
+    
+    setStatus("FPV-Modus beendet.", CONFIG.colors.statusOk);
+}
+
+export function updateFPVCamera(deltaTime) {
+    if (!isFPVMode || !fpvCurve || fpvTotalLength === 0) return;
+
+    if (isAutoPlaying) {
+        const speedMetersPerSec = 4.5; 
+        fpvProgress += (speedMetersPerSec / fpvTotalLength) * deltaTime;
+        
+        if (fpvProgress >= 1.0) {
+            fpvProgress = 1.0;
+            isAutoPlaying = false;
+            import('./ui.js').then(ui => ui.updatePlayPauseIcon(false));
+            setStatus("Ziel erreicht!", CONFIG.colors.statusOk);
+        }
+    }
+
+    const currentPos = fpvCurve.getPointAt(fpvProgress);
+    camera.position.set(currentPos.x, currentPos.y + 1.6, currentPos.z);
+
+    let lookProgress = Math.min(1.0, fpvProgress + 0.001);
+    const tangent = fpvCurve.getTangentAt(lookProgress).normalize();
+    
+    const lookAtPos = new THREE.Vector3().copy(camera.position).add(tangent);
+    camera.lookAt(lookAtPos);
+
+    let newIndex = 0;
+    for (let i = 0; i < nodeUValues.length; i++) {
+        if (fpvProgress >= nodeUValues[i] - 0.01) newIndex = i;
+    }
+
+    if (newIndex !== replayIndex) {
+        replayIndex = newIndex;
+        import('./ui.js').then(ui => {
+            ui.updateReplayStatus(`${replayIndex + 1}/${currentReplayPath.length}`);
+        });
+    }
+}
 
 export function stepReplay(direction) {
     if (currentReplayPath.length === 0) return;
 
-    // Direction: 1 (Next) or -1 (Prev)
+    if (isFPVMode) {
+        let targetIndex = replayIndex + direction;
+        if (targetIndex >= 0 && targetIndex < nodeUValues.length) {
+            fpvProgress = nodeUValues[targetIndex];
+        }
+        return;
+    }
+
     if (direction === 1) {
         if (replayIndex < currentReplayPath.length - 1) {
             replayIndex++;
@@ -35,7 +190,6 @@ export function stepReplay(direction) {
         }
     } else if (direction === -1) {
         if (replayIndex > 0) {
-            // Remove lines of the current step (going back)
             clearStepLines(replayIndex);
             replayIndex--;
             renderReplayStep(-1);
@@ -54,6 +208,8 @@ export function toggleStartLock() {
 }
 
 export function clearRoute() {
+    if (isFPVMode) exitFPVMode(); 
+    
     startNodeId = null;
     endNodeId = null;
     isDestinationLocked = false;
@@ -61,7 +217,6 @@ export function clearRoute() {
     updateLockStatus(false);
     updateRouteInfo(null, null);
 
-    // Clear Visuals
     groupsRef.path.clear();
     stopReplay();
 
@@ -69,10 +224,10 @@ export function clearRoute() {
 }
 
 function stopReplay() {
+    if (isFPVMode) exitFPVMode();
     currentReplayPath = [];
     currentDists = {};
     replayIndex = -1;
-    // Clear ALL replay lines
     Object.values(replayStepLines).forEach(lines => {
         lines.forEach(l => groupsRef.path.remove(l));
     });
@@ -83,13 +238,11 @@ function stopReplay() {
 function startReplay(path, dists) {
     currentReplayPath = path;
     currentDists = dists;
-    replayIndex = 0; // Start at first step
+    replayIndex = 0; 
     replayStepLines = {};
 
-    // Show UI
     import('./ui.js').then(module => {
         module.showReplayControls(true);
-        // Do not draw full route yet!
         renderReplayStep(1);
     });
 }
@@ -102,42 +255,26 @@ function clearStepLines(index) {
 }
 
 function renderReplayStep(direction) {
-    // Import UI updater dynamically
     import('./ui.js').then(module => {
-
-        const totalSteps = currentReplayPath.length; // Number of nodes involved? Or steps? Path length.
+        const totalSteps = currentReplayPath.length; 
         const currentNodeId = currentReplayPath[replayIndex];
         if (!currentNodeId) return;
 
         const isLastStep = replayIndex === currentReplayPath.length - 1;
-
-        // Update Status Text in Button Bar
-        // Format: "1/10"
         module.updateReplayStatus(isLastStep ? "Ziel!" : `${replayIndex + 1}/${totalSteps}`);
 
         if (isLastStep) {
             setStatus("Ziel erreicht! Gesamtroute wird angezeigt.", CONFIG.colors.statusOk);
-            // Draw the FULL pink route line now
             drawRoute(currentReplayPath, true);
             return;
         }
 
-        // If we moved BACK (-1), we just updated the index and cleared the future lines.
-        // We might want to re-display status for the 'new' current node.
-        // But if we moved FORWARD (1), we need to generate lines.
-
         if (direction === 1) {
-            if (replayStepLines[replayIndex]) {
-                // Already rendered this step? (Shouldn't happen with simple index logic usually, but safety)
-                return;
-            }
+            if (replayStepLines[replayIndex]) return;
 
             const currentNode = graph.nodes[currentNodeId];
             const nextNodeId = currentReplayPath[replayIndex + 1];
 
-            // Color Cycling: Rainbow
-            // Hue = (Step Index / Total Steps) * 0.8 (to avoid wrapping back to red if we stop before 1.0)
-            // Or just cycle 0..1
             const hue = (replayIndex / totalSteps);
             const stepColor = new THREE.Color().setHSL(hue, 1.0, 0.5);
 
@@ -146,28 +283,13 @@ function renderReplayStep(direction) {
 
             neighbors.forEach(nb => {
                 const neighborNode = graph.nodes[nb.id];
-                const isNext = nb.id === nextNodeId; // The "chosen" path
-
-                // Visualization Size: Thicker lines? 
-                // Three.js LineBasicMaterial linewidth doesn't work on Windows/WebGL usually (always 1).
-                // To get thicker lines we would need TubeGeometry or specific Line library.
-                // For now, let's stick to standard lines but maybe make them brighter?
-                // User asked for "larger". We can use TubeGeometry for these too if needed?
-                // Let's try TubeGeometry for better visibility as requested.
-
                 const cy = getY(currentNode.level, explosionOffset);
                 const ny = getY(neighborNode.level, explosionOffset);
                 const startPos = new THREE.Vector3(currentNode.x, cy + 0.5, currentNode.z);
                 const endPos = new THREE.Vector3(neighborNode.x, ny + 0.5, neighborNode.z);
 
                 const curve = new THREE.LineCurve3(startPos, endPos);
-                // Thicker lines using Tube
-                // Radius 0.3 for visibility
                 const tubeGeo = new THREE.TubeGeometry(curve, 1, 0.3, 4, false);
-
-                // If it is the "correct" next step, maybe handle differently?
-                // User said: "Show all generally stored paths... one color each step"
-                // So all neighbors get the stepColor.
 
                 const mat = new THREE.MeshBasicMaterial({ color: stepColor });
                 const mesh = new THREE.Mesh(tubeGeo, mat);
@@ -180,7 +302,6 @@ function renderReplayStep(direction) {
             replayStepLines[replayIndex] = linesForThisStep;
         }
 
-        // Update UI Status Text for Details
         const currentDist = currentDists[currentNodeId];
         let statusText = `[Schritt ${replayIndex + 1}/${totalSteps}] Distanz: ${Math.round(currentDist)}m.`;
         setStatus(statusText, CONFIG.colors.statusWait);
@@ -191,22 +312,15 @@ function togglePanMode() {
     if (!controls) return;
     const btn = document.getElementById('btn-cam-pan-toggle');
 
-    // Check current mode (Left Button)
     if (controls.mouseButtons.LEFT === THREE.MOUSE.ROTATE) {
-        // Switch to Pan
         controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
-        // Optionally switch right click to Rotate? Or keep as Pan (default is usually Pan/Zoom)
-        // OrbitControls defaults: LEFT=ROTATE, MIDDLE=DOLLY, RIGHT=PAN
-
         if (btn) btn.classList.add('active');
         setStatus("Modus: Verschieben (Pan)", CONFIG.colors.statusOk);
     } else {
-        // Switch back to Rotate
         controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
         if (btn) btn.classList.remove('active');
         setStatus("Modus: Drehen (Rotate)", CONFIG.colors.statusOk);
     }
-
     controls.update();
 }
 
@@ -226,31 +340,24 @@ export function initInteraction(scn, cam, ren, ctrl, grp) {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
 
-    // Camera Control Buttons
     const setupBtn = (id, key) => {
         const btn = document.getElementById(id);
         if (btn) {
-            console.log("Setting up button:", id);
             const start = (e) => {
-                console.log("Button start:", key);
                 e.preventDefault();
                 e.stopPropagation();
                 buttonStates[key] = true;
             };
             const end = (e) => {
-                console.log("Button end:", key);
                 e.preventDefault();
                 e.stopPropagation();
                 buttonStates[key] = false;
             };
 
-            // Use Pointer Events for unified Mouse/Touch handling
             btn.addEventListener('pointerdown', start);
             btn.addEventListener('pointerup', end);
             btn.addEventListener('pointerleave', end);
-            btn.addEventListener('contextmenu', (e) => e.preventDefault()); // Prevent right click menu
-        } else {
-            console.warn("Button not found:", id);
+            btn.addEventListener('contextmenu', (e) => e.preventDefault()); 
         }
     };
 
@@ -261,17 +368,13 @@ export function initInteraction(scn, cam, ren, ctrl, grp) {
     setupBtn('btn-cam-zoom-in', 'zin');
     setupBtn('btn-cam-zoom-out', 'zout');
 
-    // Pan Toggle
     const btnPan = document.getElementById('btn-cam-pan-toggle');
-    if (btnPan) {
-        btnPan.addEventListener('click', togglePanMode);
-    }
+    if (btnPan) btnPan.addEventListener('click', togglePanMode);
 }
 
-// WASD State
 const keys = { w: false, a: false, s: false, d: false };
 const buttonStates = { w: false, a: false, s: false, d: false, zin: false, zout: false };
-const moveSpeed = 2.0; // Adjustable speed
+const moveSpeed = 2.0; 
 const zoomSpeed = 1.0;
 
 function onKeyDown(e) {
@@ -293,10 +396,9 @@ function onKeyUp(e) {
 }
 
 export function updateMovement() {
-    if (!camera || !controls) return;
+    if (!camera || !controls || isFPVMode) return; 
 
     if (keys.w || keys.a || keys.s || keys.d || buttonStates.w || buttonStates.a || buttonStates.s || buttonStates.d || buttonStates.zin || buttonStates.zout) {
-        // Get camera forward vector projected on XZ plane
         const forward = new THREE.Vector3();
         camera.getWorldDirection(forward);
         forward.y = 0;
@@ -314,24 +416,18 @@ export function updateMovement() {
 
         move.normalize().multiplyScalar(moveSpeed);
 
-        // Apply Pan
         camera.position.add(move);
         controls.target.add(move);
 
-        // Apply Zoom (Move along camera look vector)
         if (buttonStates.zin || buttonStates.zout) {
             const zoomDir = new THREE.Vector3();
             camera.getWorldDirection(zoomDir);
 
             const dist = camera.position.distanceTo(controls.target);
 
-            // Zoom In: Move Forward
             if (buttonStates.zin) {
-                if (dist > 5) { // Minimum distance limit
-                    camera.position.addScaledVector(zoomDir, zoomSpeed);
-                }
+                if (dist > 5) camera.position.addScaledVector(zoomDir, zoomSpeed);
             }
-            // Zoom Out: Move Backward
             if (buttonStates.zout) {
                 camera.position.addScaledVector(zoomDir, -zoomSpeed);
             }
@@ -356,7 +452,6 @@ function onClick(event) {
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
 
-    // Priorities: Nodes > Entrances > Info
     const nodesHit = raycaster.intersectObjects(groupsRef.nodes.children);
     if (nodesHit.length > 0) {
         const pointIndex = nodesHit[0].index;
@@ -380,7 +475,6 @@ function onClick(event) {
         return;
     }
 
-    // Info clicks
     const stairHit = raycaster.intersectObjects(groupsRef.stairs.children);
     if (stairHit.length > 0) { showInfo(stairHit[0].object.userData.osmId, "Treppe / Rolltreppe"); return; }
 
@@ -401,7 +495,6 @@ function handleNodeClick(node) {
     const typeLabel = node.isEntrance ? "Eingang / Tür" : "Routing Node";
     showInfo(node.osmId, `${typeLabel} (Level ${node.level})`);
 
-    // PRIORITY 1: START LOCKED -> Always set End Node
     if (isStartLocked) {
         setEndNode(node);
         triggerRouteCalculation();
@@ -409,7 +502,6 @@ function handleNodeClick(node) {
         return;
     }
 
-    // PRIORITY 2: DESTINATION LOCKED (Trace Finding) -> Always set Start Node
     if (isDestinationLocked) {
         setStartNode(node);
         triggerRouteCalculation();
@@ -417,38 +509,27 @@ function handleNodeClick(node) {
         return;
     }
 
-    // STANDARD LOGIC (Toggle)
-    // SCENARIO 1: Reset if both set
     if (startNodeId && endNodeId) {
-        // Instead of full reset, let's start fresh with this new node as Start
-        resetRoute(); // Clear internal state
+        resetRoute(); 
         setStartNode(node);
         setStatus("Neue Route gestartet.", CONFIG.colors.statusWait);
         return;
     }
 
-    // SCENARIO 2: End is set (via search), user clicks Map -> Set Start & Calc
     if (endNodeId && !startNodeId) {
         setStartNode(node);
         triggerRouteCalculation();
         return;
     }
 
-    // SCENARIO 3: Nothing set -> Set Start
     if (!startNodeId) {
         setStartNode(node);
         setStatus("Start gewählt. Suche Ziel oder klicke für Ziel.", CONFIG.colors.statusWait);
         return;
     }
 
-    // SCENARIO 4: Start set, No End -> Set End & Calc
     if (startNodeId && !endNodeId) {
-        // Check if user clicked the SAME node again? Maybe unselect?
-        if (startNodeId === node.id) {
-            // Optional: Unselect start?
-            // startNodeId = null; ...
-            return;
-        }
+        if (startNodeId === node.id) return;
         setEndNode(node);
         triggerRouteCalculation();
         setStatus("Route berechnet.", CONFIG.colors.statusOk);
@@ -475,7 +556,7 @@ export function forceSetEndNode(node) {
 function resetRoute() {
     startNodeId = null;
     endNodeId = null;
-    isDestinationLocked = false; // Reset lock too
+    isDestinationLocked = false; 
     updateRouteInfo(null, null);
     groupsRef.path.clear();
     stopReplay();
@@ -487,21 +568,13 @@ function triggerRouteCalculation() {
     if (!startNodeId || !endNodeId) return;
     const result = calculateRoute(startNodeId, endNodeId);
     if (result && result.path) {
-        drawRoute(result.path, false); // Do not show pink line yet
-        // Start Replay Mode
+        drawRoute(result.path, false); 
         startReplay(result.path, result.dists);
     } else {
         setStatus("Kein Weg gefunden.", CONFIG.colors.statusError);
     }
 }
 
-
-
-
-
-
-
-// Find Track Logic
 export function findTrackAndSetTarget(val) {
     if (!val) return;
     const found = Object.values(platformRegistry).find(p => {
@@ -516,7 +589,6 @@ export function findTrackAndSetTarget(val) {
     });
 
     if (found) {
-        // Find nearest graph node
         let minDist = Infinity;
         let nearestNode = null;
 
@@ -536,9 +608,8 @@ export function findTrackAndSetTarget(val) {
             controls.target.set(nearestNode.x, y, nearestNode.z);
             camera.position.set(nearestNode.x + 20, y + 40, nearestNode.z + 20);
 
-            // Set Target AND LOCK
             setEndNode(nearestNode);
-            isDestinationLocked = true; // LOCK!
+            isDestinationLocked = true; 
 
             const displayRef = found.trackRef || found.ref || found.name;
             if (startNodeId) {
@@ -555,10 +626,7 @@ export function findTrackAndSetTarget(val) {
     }
 }
 
-
-// Visualization Helpers
 function highlight(node, color, type) {
-    // Remove existing marker of this type
     const toRemove = [];
     groupsRef.path.children.forEach(obj => {
         if (obj.userData.isMarker && obj.userData.markerType === type) {
@@ -572,31 +640,33 @@ function highlight(node, color, type) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData = { level: node.level, isMarker: true, markerType: type };
 
-    // Adjust Y based on current explosion offset
     mesh.position.set(node.x, getY(node.level, explosionOffset), node.z);
     groupsRef.path.add(mesh);
 }
 
-
-
 function drawRoute(pathIds, showFullRoute = false) {
-    // Keep markers
     const markers = groupsRef.path.children.filter(c => c.userData.isMarker);
     const replayMeshes = groupsRef.path.children.filter(c => c.userData.isReplay);
 
     groupsRef.path.clear();
     markers.forEach(m => groupsRef.path.add(m));
-    replayMeshes.forEach(m => groupsRef.path.add(m)); // Keep replay lines!
+    replayMeshes.forEach(m => groupsRef.path.add(m)); 
 
     if (showFullRoute) {
         const points = pathIds.map(id => { const n = graph.nodes[id]; return { x: n.x, z: n.z, level: n.level }; });
         const vectorPoints = points.map(p => new THREE.Vector3(p.x, getY(p.level, explosionOffset), p.z));
-        const curve = new THREE.CatmullRomCurve3(vectorPoints);
-        const geometry = new THREE.TubeGeometry(curve, points.length * 4, 0.6, 8, false); // Slightly thicker 0.6
-        const material = new THREE.MeshBasicMaterial({ color: CONFIG.colors.route }); // Pink
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.userData = { isRoute: true, pathData: points };
-        groupsRef.path.add(mesh);
+        
+        // Filter duplizierte Punkte (z.B. gleiche Koordinaten)
+        const uniquePts = getUniquePoints(vectorPoints);
+        
+        if (uniquePts.length > 1) {
+            const curve = new THREE.CatmullRomCurve3(uniquePts);
+            const geometry = new THREE.TubeGeometry(curve, uniquePts.length * 4, 0.6, 8, false); 
+            const material = new THREE.MeshBasicMaterial({ color: CONFIG.colors.route }); 
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.userData = { isRoute: true, pathData: uniquePts }; // Nutze uniquePts
+            groupsRef.path.add(mesh);
+        }
     }
 }
 
@@ -620,15 +690,16 @@ export function onSliderChange() {
         }
     });
 
-    // Update Stairs
     groupsRef.stairs.children.forEach(mesh => {
         if (mesh.userData.isStair) {
             updateStairVisuals(mesh, explosionOffset);
         }
     });
 
-    // Update Graph Lines
+    // ARCHITEKTUR-FIX: Stelle sicher, dass Graph-Linien von SSAO ignoriert werden
     groupsRef.graph.children.forEach(line => {
+        if(line.material) line.material.depthWrite = false; 
+        
         const ud = line.userData;
         const pos = line.geometry.attributes.position;
         pos.setY(0, getY(ud.level1, explosionOffset));
@@ -636,8 +707,12 @@ export function onSliderChange() {
         pos.needsUpdate = true;
     });
 
-    // Update Node Points
+    // ARCHITEKTUR-FIX: Stelle sicher, dass Knotenpunkte von SSAO ignoriert werden
     if (groupsRef.nodes.children.length > 0) {
+        if(groupsRef.nodes.children[0].material) {
+            groupsRef.nodes.children[0].material.depthWrite = false;
+        }
+        
         const points = groupsRef.nodes.children[0];
         const posAttr = points.geometry.attributes.position;
         let pointIndex = 0;
@@ -657,11 +732,16 @@ function updatePathVisuals() {
     groupsRef.path.children.forEach(obj => {
         if (obj.userData.isMarker) { obj.position.y = getY(obj.userData.level, explosionOffset); }
         if (obj.userData.isRoute) {
-            const points = obj.userData.pathData.map(p => new THREE.Vector3(p.x, getY(p.level, explosionOffset), p.z));
-            const curve = new THREE.CatmullRomCurve3(points);
-            const newGeo = new THREE.TubeGeometry(curve, points.length * 4, 0.5, 8, false);
-            obj.geometry.dispose();
-            obj.geometry = newGeo;
+            // Generiere Punkte mit aktuellem Offset
+            const points = obj.userData.pathData.map(p => new THREE.Vector3(p.x, getY(p.level || 0, explosionOffset), p.z));
+            const uniquePts = getUniquePoints(points);
+            
+            if (uniquePts.length > 1) {
+                const curve = new THREE.CatmullRomCurve3(uniquePts);
+                const newGeo = new THREE.TubeGeometry(curve, uniquePts.length * 4, 0.5, 8, false);
+                obj.geometry.dispose();
+                obj.geometry = newGeo;
+            }
         }
     });
 }

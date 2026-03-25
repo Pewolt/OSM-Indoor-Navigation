@@ -105,8 +105,8 @@
                         <span class="material-symbols-outlined text-primary">directions</span>
                         Indoor Routing
                     </h2>
-                    <p class="font-label text-xs text-on-surface-variant mt-1 tracking-widest uppercase">Version 4.1
-                        (Tailwind)</p>
+                    <p class="font-label text-xs text-on-surface-variant mt-1 tracking-widest uppercase">Version 4.2
+                        (FPV Edition)</p>
                 </header>
 
                 <!-- 1. Ort Suche & Hidden Inputs -->
@@ -186,7 +186,7 @@
                             Explosion</label>
                     </div>
                     <input id="explode-slider"
-                        class="w-full h-1.5 bg-surface-container-highest rounded-full appearance-none cursor-pointer accent-primary"
+                        class="w-full h-1.5 bg-surface-container-highest rounded-full appearance-none cursor-pointer accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
                         type="range" min="0" max="20" step="0.5" value="0" />
                 </div>
 
@@ -285,21 +285,36 @@
     </main>
 
     <!-- Replay Control Bar (Bottom Center) -->
-    <footer id="replay-controls"
-        class="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-surface-container-lowest/90 backdrop-blur-lg px-6 py-2 flex justify-center items-center gap-6 z-[110] border border-white/10 shadow-2xl hidden pointer-events-auto">
-        <button id="btn-replay-prev" class="flex flex-col items-center gap-1 group">
-            <span
-                class="material-symbols-outlined text-slate-400 group-hover:text-white transition-all text-xl">fast_rewind</span>
+    <div id="replay-controls" class="fixed bottom-6 left-1/2 -translate-x-1/2 flex gap-4 items-center z-[110] hidden pointer-events-auto">
+        
+        <footer class="rounded-full bg-surface-container-lowest/90 backdrop-blur-lg px-6 py-2 flex justify-center items-center gap-4 border border-white/10 shadow-2xl">
+            <!-- Prev Button -->
+            <button id="btn-replay-prev" class="flex flex-col items-center gap-1 group">
+                <span class="material-symbols-outlined text-slate-400 group-hover:text-white transition-all text-xl">fast_rewind</span>
+            </button>
+            
+            <!-- Play/Pause Button für FPV -->
+            <button id="btn-replay-playpause" class="flex flex-col items-center group">
+                <span id="icon-playpause" class="material-symbols-outlined text-primary group-hover:text-primary-fixed transition-all text-3xl">play_arrow</span>
+            </button>
+
+            <!-- Next Button -->
+            <button id="btn-replay-next" class="flex flex-col items-center gap-1 group">
+                <span class="material-symbols-outlined text-slate-400 group-hover:text-white transition-all text-xl">fast_forward</span>
+            </button>
+
+            <div class="flex flex-col items-center px-4 border-l border-white/10 ml-2">
+                <span class="font-label text-[10px] font-bold uppercase text-primary tracking-widest">Route</span>
+                <span id="replay-status" class="text-sm font-bold text-white">0/0</span>
+            </div>
+        </footer>
+
+        <!-- FPV Exit Button (wird nur im FPV Modus angezeigt) -->
+        <button id="btn-exit-fpv" class="bg-error-container/80 text-red-300 px-4 py-3 rounded-full text-xs font-bold hover:bg-red-500 hover:text-white transition-all shadow-lg border border-red-500/30 flex items-center gap-2 hidden backdrop-blur-md">
+            <span class="material-symbols-outlined text-sm">close</span> FPV Beenden
         </button>
-        <div class="flex flex-col items-center px-4 border-x border-white/10">
-            <span class="font-label text-[10px] font-bold uppercase text-primary tracking-widest">Route</span>
-            <span id="replay-status" class="text-sm font-bold text-white">0/0</span>
-        </div>
-        <button id="btn-replay-next" class="flex flex-col items-center gap-1 group">
-            <span
-                class="material-symbols-outlined text-slate-400 group-hover:text-white transition-all text-xl">fast_forward</span>
-        </button>
-    </footer>
+
+    </div>
 
     <script type="module" src="js/main.js?v=2"></script>
 </body>

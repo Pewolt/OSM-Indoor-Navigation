@@ -21,6 +21,9 @@ export const ELEMENTS = {
     replayControls: document.getElementById('replay-controls'),
     btnReplayPrev: document.getElementById('btn-replay-prev'),
     btnReplayNext: document.getElementById('btn-replay-next'),
+    btnReplayPlayPause: document.getElementById('btn-replay-playpause'),
+    iconPlayPause: document.getElementById('icon-playpause'),
+    btnExitFPV: document.getElementById('btn-exit-fpv'),
     replayStatus: document.getElementById('replay-status'),
     btnLockStart: document.getElementById('btn-lock-start'),
     btnClearRoute: document.getElementById('btn-clear-route'),
@@ -31,19 +34,16 @@ export const ELEMENTS = {
 export function setStatus(text, color) {
     if (!ELEMENTS.status) return;
     ELEMENTS.status.innerText = text;
-    // Wir entfernen inline styles für Tailwind, außer wir wollen wirklich hart überschreiben
     ELEMENTS.status.style.color = color || '';
 }
 
 export function showInfo(osmId, typeLabel) {
     const tags = osmCache[osmId] || {};
-    // Nutze Flexbox anstatt 'block', um das neue Design zu respektieren
     ELEMENTS.infoPanel.style.display = 'flex';
     ELEMENTS.infoPanel.classList.remove('hidden');
 
     if (ELEMENTS.infoTitle) ELEMENTS.infoTitle.innerText = tags.name || typeLabel || osmId;
 
-    // Tailwind-styled Liste anstelle einer HTML-Tabelle
     let html = `<div class="flex flex-col gap-3">`;
     html += `
         <div class="flex flex-col gap-1">
@@ -87,7 +87,6 @@ export function renderSearchResults(data, uiElements, onSelectCallback) {
     }
     data.forEach(item => {
         const div = document.createElement('div');
-        // Tailwind styling für die Dropdown-Elemente
         div.className = 'px-4 py-3 text-sm text-on-surface hover:bg-primary/20 hover:text-white cursor-pointer border-b border-outline-variant/30 last:border-0 transition-colors';
         div.innerText = item.display_name.split(',').slice(0, 3).join(',');
         div.addEventListener('click', () => {
@@ -141,12 +140,31 @@ export function showReplayControls(show) {
             ELEMENTS.replayControls.style.display = 'none';
             ELEMENTS.replayControls.classList.add('hidden');
             updateReplayStatus("-");
+            updatePlayPauseIcon(false);
+            toggleFPVUI(false);
         }
     }
 }
 
 export function updateReplayStatus(text) {
     if (ELEMENTS.replayStatus) ELEMENTS.replayStatus.innerText = text;
+}
+
+// --- NEU FÜR FPV MODUS ---
+export function updatePlayPauseIcon(isPlaying) {
+    if (ELEMENTS.iconPlayPause) {
+        ELEMENTS.iconPlayPause.innerText = isPlaying ? 'pause' : 'play_arrow';
+    }
+}
+
+export function toggleFPVUI(isFPV) {
+    if (ELEMENTS.btnExitFPV) {
+        if (isFPV) {
+            ELEMENTS.btnExitFPV.classList.remove('hidden');
+        } else {
+            ELEMENTS.btnExitFPV.classList.add('hidden');
+        }
+    }
 }
 
 export function updateLockStatus(isLocked) {
@@ -180,6 +198,4 @@ export function populateLevelSelect(levels) {
     });
 }
 
-export function initMobileMenu() {
-    // Falls du das Burger Menü später wieder einbauen willst, hier ist der Hook
-}
+export function initMobileMenu() {}

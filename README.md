@@ -1,5 +1,7 @@
 # 3D Indoor Routing ("S-Bahnhof Friedrichstraße")
 
+[![Hier Testen](https://img.shields.io/badge/Hier_Testen-red)](https://osmindoor.peterwolters.org/)
+
 Ein interaktives 3D-Indoor-Navigationssystem basierend auf OpenStreetMap-Daten, entwickelt mit Three.js.
 
 ## 🌟 Features
